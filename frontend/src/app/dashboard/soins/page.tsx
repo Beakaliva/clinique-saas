@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm, useFieldArray } from 'react-hook-form'
+import { useSearchParams, useRouter } from 'next/navigation'
 import api from '@/lib/api'
 import type { Soin, SoinActe, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
@@ -11,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import PatientSelect from '@/components/ui/patient-select'
-import { Plus, Search, Heart, User, ChevronLeft, ChevronRight, Pencil, Trash2, PlusCircle, XCircle } from 'lucide-react'
+import { Plus, Search, Heart, User, ChevronLeft, ChevronRight, Pencil, Trash2, PlusCircle, XCircle, ArrowLeft } from 'lucide-react'
 
 const STATUTS = [
   { value: 'planifie',  label: 'Planifié',  color: 'bg-blue-50 text-blue-700' },
@@ -37,8 +38,15 @@ interface FormData {
   actes: { acte: string; qte: number; prix: number }[]
 }
 
-function fetchSoins(search: string, page: number) {
-  return api.get<PaginatedResponse<Soin>>('/soins/', { params: { search, page } }).then(r => r.data)
+function fetchSoins(search: string, page: number, consultationId?: number | null) {
+  const params: Record<string, unknown> = { search, page }
+  if (consultationId) params.consultation = consultationId
+  return api.get<PaginatedResponse<Soin>>('/soins/', { params }).then(r => r.data)
+}
+
+async function fetchConsultationInfo(id: number) {
+  const r = await api.get(`/consultations/${id}/`)
+  return r.data as { id: number; patient_nom: string; motif: string; date: string }
 }
 
 async function saveActes(soinId: number, actes: FormData['actes'], existingActes: SoinActe[]) {
@@ -50,6 +58,11 @@ async function saveActes(soinId: number, actes: FormData['actes'], existingActes
 
 export default function SoinsPage() {
   const qc = useQueryClient()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const consultationParam = searchParams.get('consultation')
+  const consultationId = consultationParam ? Number(consultationParam) : null
+
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [open, setOpen] = useState(false)
@@ -57,8 +70,14 @@ export default function SoinsPage() {
   const [patientId, setPatientId] = useState<number | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['soins', search, page],
-    queryFn: () => fetchSoins(search, page),
+    queryKey: ['soins', search, page, consultationId],
+    queryFn: () => fetchSoins(search, page, consultationId),
+  })
+
+  const { data: consultationInfo } = useQuery({
+    queryKey: ['consultation-info', consultationId],
+    queryFn: () => fetchConsultationInfo(consultationId!),
+    enabled: !!consultationId,
   })
 
   const { register, handleSubmit, reset, setValue, control, watch } = useForm<FormData>({
@@ -114,9 +133,22 @@ export default function SoinsPage() {
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Soins</h1>
-          <p className="text-gray-500 text-sm">{data?.count ?? 0} soin(s) enregistré(s)</p>
+        <div className="flex items-center gap-3">
+          {consultationId && (
+            <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard/consultations')}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          )}
+          <div>
+            <h1 className="text-2xl font-bold text-gray-800">Soins</h1>
+            {consultationId && consultationInfo ? (
+              <p className="text-sm text-blue-600 font-medium">
+                Consultation : {consultationInfo.patient_nom} — {consultationInfo.motif || new Date(consultationInfo.date).toLocaleDateString('fr-FR')}
+              </p>
+            ) : (
+              <p className="text-gray-500 text-sm">{data?.count ?? 0} soin(s) enregistré(s)</p>
+            )}
+          </div>
         </div>
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setPatientId(null); reset({ actes: [] }); setEditing(null) } }}>
           <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Nouveau soin</Button>} />

@@ -11,10 +11,11 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import PatientSelect from '@/components/ui/patient-select'
+import { useRouter } from 'next/navigation'
 import {
   Plus, Search, Stethoscope, User, ChevronLeft, ChevronRight,
   Pencil, Trash2, Heart, ArrowLeft, CheckCircle2, Clock, XCircle, HeartPulse,
-  PlusCircle, XCircle as XCircleIcon,
+  PlusCircle, XCircle as XCircleIcon, ExternalLink,
 } from 'lucide-react'
 
 // ── Statuts ──────────────────────────────────────────────────────────────
@@ -75,6 +76,7 @@ function fmt(val: string | number) {
 
 function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: Consultation; onBack: () => void; autoOpen?: boolean }) {
   const qc = useQueryClient()
+  const router = useRouter()
   const [openSoin, setOpenSoin] = useState(autoOpen)
   const [editingSoin, setEditingSoin] = useState<Soin | null>(null)
 
@@ -141,7 +143,17 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
           <h1 className="text-xl font-bold text-gray-800">Soins de la consultation</h1>
           <p className="text-sm text-gray-500">{consultation.patient_nom} — {new Date(consultation.date).toLocaleDateString('fr-FR')}</p>
         </div>
-        <Dialog open={openSoin} onOpenChange={(v) => { setOpenSoin(v); if (!v) { reset({ actes: [] }); setEditingSoin(null) } }}>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-2 text-blue-600 border-blue-200 hover:bg-blue-50"
+            onClick={() => router.push(`/dashboard/soins?consultation=${consultation.id}`)}
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Voir dans Soins
+          </Button>
+          <Dialog open={openSoin} onOpenChange={(v) => { setOpenSoin(v); if (!v) { reset({ actes: [] }); setEditingSoin(null) } }}>
           <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Ajouter un soin</Button>} />
           <DialogContent className="max-w-xl">
             <DialogHeader>
@@ -219,6 +231,7 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Info consultation */}
