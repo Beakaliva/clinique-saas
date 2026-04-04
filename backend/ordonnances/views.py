@@ -1,0 +1,42 @@
+from rest_framework import generics
+
+from config.mixins import ClinicScopedMixin
+from .models import LigneOrdonnance, Ordonnance
+from .serializers import LigneOrdonnanceSerializer, OrdonnanceSerializer
+
+
+class OrdonnanceListCreateView(ClinicScopedMixin, generics.ListCreateAPIView):
+    queryset         = Ordonnance.objects.select_related('patient', 'medecin')
+    serializer_class = OrdonnanceSerializer
+    search_fields    = ['patient__last_name', 'patient__first_name']
+    ordering_fields  = ['date']
+    ordering         = ['-date']
+
+
+class OrdonnanceDetailView(ClinicScopedMixin, generics.RetrieveUpdateDestroyAPIView):
+    queryset         = Ordonnance.objects.select_related('patient', 'medecin')
+    serializer_class = OrdonnanceSerializer
+
+
+class LigneOrdonnanceListCreateView(generics.ListCreateAPIView):
+    serializer_class = LigneOrdonnanceSerializer
+
+    def get_queryset(self):
+        return LigneOrdonnance.objects.filter(
+            ordonnance__clinic=self.request.user.clinic,
+            ordonnance_id=self.kwargs['ordonnance_pk'],
+        )
+
+    def perform_create(self, serializer):
+        ordonnance = Ordonnance.objects.get(
+            pk=self.kwargs['ordonnance_pk'],
+            clinic=self.request.user.clinic,
+        )
+        serializer.save(ordonnance=ordonnance)
+
+
+class LigneOrdonnanceDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = LigneOrdonnanceSerializer
+
+    def get_queryset(self):
+        return LigneOrdonnance.objects.filter(ordonnance__clinic=self.request.user.clinic)
