@@ -107,6 +107,8 @@ export interface Soin {
   id: number
   patient: number
   patient_nom: string
+  consultation: number | null
+  consultation_ref: { id: number; motif: string } | null
   infirmier: number | null
   infirmier_nom: string | null
   type_soin: string

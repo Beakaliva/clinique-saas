@@ -6,9 +6,10 @@ from .serializers import SoinSerializer
 
 
 class SoinListCreateView(ClinicScopedMixin, generics.ListCreateAPIView):
-    queryset         = Soin.objects.select_related('patient', 'infirmier')
+    queryset         = Soin.objects.select_related('patient', 'infirmier', 'consultation')
     serializer_class = SoinSerializer
     search_fields    = ['patient__last_name', 'patient__first_name', 'type_soin']
+    filterset_fields = ['consultation', 'statut', 'patient']
     ordering_fields  = ['date', 'statut']
     ordering         = ['-date']
 

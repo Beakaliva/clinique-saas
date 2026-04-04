@@ -10,9 +10,10 @@ class Soin(models.Model):
         EFFECTUE  = 'effectue',  _('Effectué')
         ANNULE    = 'annule',    _('Annulé')
 
-    clinic    = models.ForeignKey('users.Clinic',    on_delete=models.CASCADE,  related_name='soins', verbose_name=_('Clinique'))
-    patient   = models.ForeignKey('patients.Patient', on_delete=models.CASCADE,  related_name='soins', verbose_name=_('Patient'))
-    infirmier = models.ForeignKey('users.User',       on_delete=models.SET_NULL, null=True, blank=True, related_name='soins', verbose_name=_('Infirmier(ère)'))
+    clinic        = models.ForeignKey('users.Clinic',                  on_delete=models.CASCADE,  related_name='soins',         verbose_name=_('Clinique'))
+    patient       = models.ForeignKey('patients.Patient',              on_delete=models.CASCADE,  related_name='soins',         verbose_name=_('Patient'))
+    consultation  = models.ForeignKey('consultations.Consultation',    on_delete=models.SET_NULL, null=True, blank=True, related_name='soins', verbose_name=_('Consultation liée'))
+    infirmier     = models.ForeignKey('users.User',                    on_delete=models.SET_NULL, null=True, blank=True, related_name='soins', verbose_name=_('Infirmier(ère)'))
 
     type_soin   = models.CharField(max_length=150, verbose_name=_('Type de soin'))
     date        = models.DateTimeField(verbose_name=_('Date'))
