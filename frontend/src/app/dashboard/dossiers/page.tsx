@@ -177,29 +177,29 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
           </CardContent>
         </Card>
 
-        {dossier.traitements_en_cours && (
-          <Card className="border-0 shadow-sm lg:col-span-3">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Pill className="h-4 w-4 text-blue-500" />
-                <p className="text-sm font-semibold text-gray-700">Traitements en cours</p>
-              </div>
-              <p className="text-sm text-gray-600">{dossier.traitements_en_cours}</p>
-            </CardContent>
-          </Card>
-        )}
+        <Card className="border-0 shadow-sm lg:col-span-3">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Pill className="h-4 w-4 text-blue-500" />
+              <p className="text-sm font-semibold text-gray-700">Traitements en cours</p>
+            </div>
+            <p className="text-sm text-gray-600">
+              {dossier.traitements_en_cours || <span className="text-gray-400 italic">Aucun traitement en cours</span>}
+            </p>
+          </CardContent>
+        </Card>
 
-        {dossier.notes && (
-          <Card className="border-0 shadow-sm lg:col-span-3">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <FileText className="h-4 w-4 text-gray-500" />
-                <p className="text-sm font-semibold text-gray-700">Notes</p>
-              </div>
-              <p className="text-sm text-gray-600">{dossier.notes}</p>
-            </CardContent>
-          </Card>
-        )}
+        <Card className="border-0 shadow-sm lg:col-span-3">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <FileText className="h-4 w-4 text-gray-500" />
+              <p className="text-sm font-semibold text-gray-700">Notes</p>
+            </div>
+            <p className="text-sm text-gray-600">
+              {dossier.notes || <span className="text-gray-400 italic">Aucune note</span>}
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Antécédents */}
