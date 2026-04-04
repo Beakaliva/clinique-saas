@@ -4,12 +4,13 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import api from '@/lib/api'
-import type { RendezVous, Patient, PaginatedResponse } from '@/types'
+import type { RendezVous, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import PatientSelect from '@/components/ui/patient-select'
 import { Plus, Search, Calendar, Clock, User, ChevronLeft, ChevronRight, Pencil, Trash2 } from 'lucide-react'
 
 const STATUTS = [
@@ -28,25 +29,17 @@ function fetchRdv(search: string, page: number) {
   return api.get<PaginatedResponse<RendezVous>>('/rendez-vous/', { params: { search, page } }).then(r => r.data)
 }
 
-function fetchPatients() {
-  return api.get<PaginatedResponse<Patient>>('/patients/', { params: { page_size: 200 } }).then(r => r.data.results)
-}
-
 export default function RendezVousPage() {
   const qc = useQueryClient()
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<RendezVous | null>(null)
+  const [patientId, setPatientId] = useState<number | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['rendez-vous', search, page],
     queryFn: () => fetchRdv(search, page),
-  })
-
-  const { data: patients = [] } = useQuery({
-    queryKey: ['patients-list'],
-    queryFn: fetchPatients,
   })
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<Partial<RendezVous>>()
@@ -56,7 +49,10 @@ export default function RendezVousPage() {
       editing
         ? api.patch(`/rendez-vous/${editing.id}/`, d).then(r => r.data)
         : api.post('/rendez-vous/', d).then(r => r.data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['rendez-vous'] }); setOpen(false); reset(); setEditing(null) },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['rendez-vous'] })
+      setOpen(false); reset(); setEditing(null); setPatientId(null)
+    },
   })
 
   const remove = useMutation({
@@ -66,11 +62,12 @@ export default function RendezVousPage() {
 
   const openEdit = (r: RendezVous) => {
     setEditing(r)
+    setPatientId(r.patient)
     Object.entries(r).forEach(([k, v]) => setValue(k as keyof RendezVous, v as string))
     setOpen(true)
   }
 
-  const openNew = () => { setEditing(null); reset(); setOpen(true) }
+  const openNew = () => { setEditing(null); setPatientId(null); reset(); setOpen(true) }
 
   const totalPages = data ? Math.ceil(data.count / 25) : 1
 
@@ -82,22 +79,21 @@ export default function RendezVousPage() {
           <h1 className="text-2xl font-bold text-gray-800">Rendez-vous</h1>
           <p className="text-gray-500 text-sm">{data?.count ?? 0} rendez-vous enregistré(s)</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setPatientId(null); reset(); setEditing(null) } }}>
           <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Nouveau RDV</Button>} />
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>{editing ? 'Modifier le rendez-vous' : 'Nouveau rendez-vous'}</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleSubmit((d) => save.mutate(d))} className="space-y-4">
+            <form onSubmit={handleSubmit((d) => save.mutate({ ...d, patient: patientId! }))} className="space-y-4">
               <div>
                 <Label>Patient *</Label>
-                <select {...register('patient', { required: true })} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm">
-                  <option value="">— Sélectionner —</option>
-                  {patients.map(p => (
-                    <option key={p.id} value={p.id}>{p.last_name.toUpperCase()} {p.first_name}</option>
-                  ))}
-                </select>
-                {errors.patient && <p className="text-xs text-red-500 mt-1">Champ requis</p>}
+                <PatientSelect
+                  value={patientId}
+                  onChange={(id) => setPatientId(id)}
+                  required
+                />
+                {!patientId && errors.patient && <p className="text-xs text-red-500 mt-1">Champ requis</p>}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -125,7 +121,7 @@ export default function RendezVousPage() {
               </div>
               <div className="flex gap-3 justify-end">
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-                <Button type="submit" disabled={save.isPending}>
+                <Button type="submit" disabled={save.isPending || !patientId}>
                   {save.isPending ? 'Enregistrement...' : 'Enregistrer'}
                 </Button>
               </div>

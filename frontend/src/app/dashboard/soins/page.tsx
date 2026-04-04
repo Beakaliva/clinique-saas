@@ -4,12 +4,13 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import api from '@/lib/api'
-import type { Soin, Patient, PaginatedResponse } from '@/types'
+import type { Soin, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import PatientSelect from '@/components/ui/patient-select'
 import { Plus, Search, Heart, User, ChevronLeft, ChevronRight, Pencil, Trash2 } from 'lucide-react'
 
 const STATUTS = [
@@ -27,25 +28,17 @@ function fetchSoins(search: string, page: number) {
   return api.get<PaginatedResponse<Soin>>('/soins/', { params: { search, page } }).then(r => r.data)
 }
 
-function fetchPatients() {
-  return api.get<PaginatedResponse<Patient>>('/patients/', { params: { page_size: 200 } }).then(r => r.data.results)
-}
-
 export default function SoinsPage() {
   const qc = useQueryClient()
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Soin | null>(null)
+  const [patientId, setPatientId] = useState<number | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['soins', search, page],
     queryFn: () => fetchSoins(search, page),
-  })
-
-  const { data: patients = [] } = useQuery({
-    queryKey: ['patients-list'],
-    queryFn: fetchPatients,
   })
 
   const { register, handleSubmit, reset, setValue } = useForm<Partial<Soin>>()
@@ -54,8 +47,11 @@ export default function SoinsPage() {
     mutationFn: (d: Partial<Soin>) =>
       editing
         ? api.patch(`/soins/${editing.id}/`, d).then(r => r.data)
-        : api.post('/soins/', d).then(r => r.data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['soins'] }); setOpen(false); reset(); setEditing(null) },
+        : api.post('/soins/', { ...d, patient: patientId! }).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['soins'] })
+      setOpen(false); reset(); setEditing(null); setPatientId(null)
+    },
   })
 
   const remove = useMutation({
@@ -65,11 +61,12 @@ export default function SoinsPage() {
 
   const openEdit = (s: Soin) => {
     setEditing(s)
+    setPatientId(s.patient)
     Object.entries(s).forEach(([k, v]) => setValue(k as keyof Soin, v as string))
     setOpen(true)
   }
 
-  const openNew = () => { setEditing(null); reset(); setOpen(true) }
+  const openNew = () => { setEditing(null); setPatientId(null); reset(); setOpen(true) }
 
   const totalPages = data ? Math.ceil(data.count / 25) : 1
 
@@ -81,7 +78,7 @@ export default function SoinsPage() {
           <h1 className="text-2xl font-bold text-gray-800">Soins</h1>
           <p className="text-gray-500 text-sm">{data?.count ?? 0} soin(s) enregistré(s)</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setPatientId(null); reset(); setEditing(null) } }}>
           <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Nouveau soin</Button>} />
           <DialogContent className="max-w-lg">
             <DialogHeader>
@@ -90,12 +87,11 @@ export default function SoinsPage() {
             <form onSubmit={handleSubmit((d) => save.mutate(d))} className="space-y-4">
               <div>
                 <Label>Patient *</Label>
-                <select {...register('patient', { required: true })} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm">
-                  <option value="">— Sélectionner —</option>
-                  {patients.map(p => (
-                    <option key={p.id} value={p.id}>{p.last_name.toUpperCase()} {p.first_name}</option>
-                  ))}
-                </select>
+                <PatientSelect
+                  value={patientId}
+                  onChange={(id) => setPatientId(id)}
+                  required
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -123,7 +119,7 @@ export default function SoinsPage() {
               </div>
               <div className="flex gap-3 justify-end">
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-                <Button type="submit" disabled={save.isPending}>
+                <Button type="submit" disabled={save.isPending || !patientId}>
                   {save.isPending ? 'Enregistrement...' : 'Enregistrer'}
                 </Button>
               </div>
@@ -161,6 +157,7 @@ export default function SoinsPage() {
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Type de soin</th>
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Date</th>
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Infirmier</th>
+                  <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Consultation liée</th>
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Statut</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -176,9 +173,12 @@ export default function SoinsPage() {
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">{s.type_soin || '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">
-                      {s.date ? new Date(s.date).toLocaleDateString('fr-FR') : '—'}
+                      {s.date ? new Date(s.date).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">{s.infirmier_nom || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 italic">
+                      {s.consultation_ref ? s.consultation_ref.motif : '—'}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-1 text-xs rounded-full font-medium ${getStatutStyle(s.statut)}`}>
                         {s.statut_label}

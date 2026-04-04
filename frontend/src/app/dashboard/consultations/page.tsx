@@ -4,12 +4,13 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import api from '@/lib/api'
-import type { Consultation, Soin, Patient, PaginatedResponse } from '@/types'
+import type { Consultation, Soin, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import PatientSelect from '@/components/ui/patient-select'
 import {
   Plus, Search, Stethoscope, User, ChevronLeft, ChevronRight,
   Pencil, Trash2, Heart, ArrowLeft, CheckCircle2, Clock, XCircle,
@@ -47,10 +48,6 @@ function fetchConsultations(search: string, page: number) {
 
 function fetchSoinsByConsultation(consultationId: number) {
   return api.get<PaginatedResponse<Soin>>('/soins/', { params: { consultation: consultationId, page_size: 50 } }).then(r => r.data.results)
-}
-
-function fetchPatients() {
-  return api.get<PaginatedResponse<Patient>>('/patients/', { params: { page_size: 200 } }).then(r => r.data.results)
 }
 
 // ── Panel soins d'une consultation ────────────────────────────────────────
@@ -238,15 +235,11 @@ export default function ConsultationsPage() {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Consultation | null>(null)
   const [viewSoins, setViewSoins] = useState<Consultation | null>(null)
+  const [patientId, setPatientId] = useState<number | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['consultations', search, page],
     queryFn: () => fetchConsultations(search, page),
-  })
-
-  const { data: patients = [] } = useQuery({
-    queryKey: ['patients-list'],
-    queryFn: fetchPatients,
   })
 
   const { register, handleSubmit, reset, setValue } = useForm<Partial<Consultation>>()
@@ -255,8 +248,11 @@ export default function ConsultationsPage() {
     mutationFn: (d: Partial<Consultation>) =>
       editing
         ? api.patch(`/consultations/${editing.id}/`, d).then(r => r.data)
-        : api.post('/consultations/', d).then(r => r.data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['consultations'] }); setOpen(false); reset(); setEditing(null) },
+        : api.post('/consultations/', { ...d, patient: patientId! }).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['consultations'] })
+      setOpen(false); reset(); setEditing(null); setPatientId(null)
+    },
   })
 
   const remove = useMutation({
@@ -266,11 +262,12 @@ export default function ConsultationsPage() {
 
   const openEdit = (c: Consultation) => {
     setEditing(c)
+    setPatientId(c.patient)
     Object.entries(c).forEach(([k, v]) => setValue(k as keyof Consultation, v as string))
     setOpen(true)
   }
 
-  const openNew = () => { setEditing(null); reset(); setOpen(true) }
+  const openNew = () => { setEditing(null); setPatientId(null); reset(); setOpen(true) }
 
   const totalPages = data ? Math.ceil(data.count / 25) : 1
 
@@ -293,7 +290,7 @@ export default function ConsultationsPage() {
           <h1 className="text-2xl font-bold text-gray-800">Consultations</h1>
           <p className="text-gray-500 text-sm">{data?.count ?? 0} consultation(s) enregistrée(s)</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setPatientId(null); reset(); setEditing(null) } }}>
           <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Nouvelle consultation</Button>} />
           <DialogContent className="max-w-lg">
             <DialogHeader>
@@ -302,12 +299,11 @@ export default function ConsultationsPage() {
             <form onSubmit={handleSubmit((d) => save.mutate(d))} className="space-y-4">
               <div>
                 <Label>Patient *</Label>
-                <select {...register('patient', { required: true })} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm">
-                  <option value="">— Sélectionner —</option>
-                  {patients.map(p => (
-                    <option key={p.id} value={p.id}>{p.last_name.toUpperCase()} {p.first_name}</option>
-                  ))}
-                </select>
+                <PatientSelect
+                  value={patientId}
+                  onChange={(id) => setPatientId(id)}
+                  required
+                />
               </div>
               <div>
                 <Label>Date *</Label>
@@ -333,7 +329,7 @@ export default function ConsultationsPage() {
               </div>
               <div className="flex gap-3 justify-end">
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-                <Button type="submit" disabled={save.isPending}>
+                <Button type="submit" disabled={save.isPending || !patientId}>
                   {save.isPending ? 'Enregistrement...' : 'Enregistrer'}
                 </Button>
               </div>
