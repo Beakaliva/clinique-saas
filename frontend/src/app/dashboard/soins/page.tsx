@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -56,7 +56,7 @@ async function saveActes(soinId: number, actes: FormData['actes'], existingActes
   await Promise.all(actes.map(a => api.post(`/soins/${soinId}/actes/`, a)))
 }
 
-export default function SoinsPage() {
+function SoinsContent() {
   const qc = useQueryClient()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -332,5 +332,13 @@ export default function SoinsPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function SoinsPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-40 text-gray-400">Chargement...</div>}>
+      <SoinsContent />
+    </Suspense>
   )
 }

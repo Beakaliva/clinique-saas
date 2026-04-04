@@ -1,5 +1,7 @@
 from rest_framework import generics
+from rest_framework import filters
 from rest_framework.exceptions import PermissionDenied
+from django_filters.rest_framework import DjangoFilterBackend
 
 from config.mixins import ClinicScopedMixin
 from .models import Soin, SoinActe
@@ -9,8 +11,9 @@ from .serializers import SoinSerializer, SoinActeSerializer
 class SoinListCreateView(ClinicScopedMixin, generics.ListCreateAPIView):
     queryset         = Soin.objects.select_related('patient', 'infirmier', 'consultation').prefetch_related('actes')
     serializer_class = SoinSerializer
-    search_fields    = ['patient__last_name', 'patient__first_name', 'type_soin']
+    filter_backends  = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['consultation', 'statut', 'patient']
+    search_fields    = ['patient__last_name', 'patient__first_name', 'type_soin']
     ordering_fields  = ['date', 'statut']
     ordering         = ['-date']
 
