@@ -2,9 +2,9 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useForm } from 'react-hook-form'
+import { useForm, useFieldArray } from 'react-hook-form'
 import api from '@/lib/api'
-import type { Consultation, Soin, PaginatedResponse } from '@/types'
+import type { Consultation, Soin, SoinActe, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -14,6 +14,7 @@ import PatientSelect from '@/components/ui/patient-select'
 import {
   Plus, Search, Stethoscope, User, ChevronLeft, ChevronRight,
   Pencil, Trash2, Heart, ArrowLeft, CheckCircle2, Clock, XCircle, HeartPulse,
+  PlusCircle, XCircle as XCircleIcon,
 } from 'lucide-react'
 
 // ── Statuts ──────────────────────────────────────────────────────────────
@@ -50,6 +51,26 @@ function fetchSoinsByConsultation(consultationId: number) {
   return api.get<PaginatedResponse<Soin>>('/soins/', { params: { consultation: consultationId, page_size: 50 } }).then(r => r.data.results)
 }
 
+// ── Types formulaire soin ─────────────────────────────────────────────────
+
+interface SoinFormData {
+  type_soin: string
+  date: string
+  description: string
+  notes: string
+  statut: string
+  actes: { acte: string; qte: number; prix: number }[]
+}
+
+async function saveActes(soinId: number, actes: SoinFormData['actes'], existing: SoinActe[]) {
+  await Promise.all(existing.map(a => api.delete(`/soins/${soinId}/actes/${a.id}/`)))
+  await Promise.all(actes.map(a => api.post(`/soins/${soinId}/actes/`, a)))
+}
+
+function fmt(val: string | number) {
+  return Number(val).toLocaleString('fr-FR') + ' GNF'
+}
+
 // ── Panel soins d'une consultation ────────────────────────────────────────
 
 function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: Consultation; onBack: () => void; autoOpen?: boolean }) {
@@ -62,34 +83,52 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
     queryFn: () => fetchSoinsByConsultation(consultation.id),
   })
 
-  const { register, handleSubmit, reset, setValue } = useForm<Partial<Soin>>()
+  const { register, handleSubmit, reset, setValue, control, watch } = useForm<SoinFormData>({
+    defaultValues: { actes: [] }
+  })
+  const { fields, append, remove: removeField } = useFieldArray({ control, name: 'actes' })
+  const actes = watch('actes')
+  const totalLocal = actes.reduce((s, a) => s + (Number(a.qte) || 0) * (Number(a.prix) || 0), 0)
 
   const save = useMutation({
-    mutationFn: (d: Partial<Soin>) =>
-      editingSoin
-        ? api.patch(`/soins/${editingSoin.id}/`, d).then(r => r.data)
-        : api.post('/soins/', { ...d, patient: consultation.patient, consultation: consultation.id }).then(r => r.data),
+    mutationFn: async (d: SoinFormData) => {
+      const payload = { type_soin: d.type_soin, date: d.date, description: d.description, notes: d.notes, statut: d.statut }
+      let soin: Soin
+      if (editingSoin) {
+        soin = await api.patch<Soin>(`/soins/${editingSoin.id}/`, payload).then(r => r.data)
+        await saveActes(soin.id, d.actes, editingSoin.actes)
+      } else {
+        soin = await api.post<Soin>('/soins/', { ...payload, patient: consultation.patient, consultation: consultation.id }).then(r => r.data)
+        await Promise.all(d.actes.map(a => api.post(`/soins/${soin.id}/actes/`, a)))
+      }
+      return soin
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['soins-consult', consultation.id] })
       qc.invalidateQueries({ queryKey: ['soins'] })
       setOpenSoin(false)
-      reset()
+      reset({ actes: [] })
       setEditingSoin(null)
     },
   })
 
-  const remove = useMutation({
+  const removeSoin = useMutation({
     mutationFn: (id: number) => api.delete(`/soins/${id}/`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['soins-consult', consultation.id] }),
   })
 
   const openEdit = (s: Soin) => {
     setEditingSoin(s)
-    Object.entries(s).forEach(([k, v]) => setValue(k as keyof Soin, v as string))
+    setValue('type_soin', s.type_soin)
+    setValue('date', s.date.slice(0, 16))
+    setValue('description', s.description)
+    setValue('notes', s.notes)
+    setValue('statut', s.statut)
+    setValue('actes', s.actes.map(a => ({ acte: a.acte, qte: a.qte, prix: Number(a.prix) })))
     setOpenSoin(true)
   }
 
-  const openNew = () => { setEditingSoin(null); reset(); setOpenSoin(true) }
+  const openNew = () => { setEditingSoin(null); reset({ actes: [] }); setOpenSoin(true) }
 
   return (
     <div className="space-y-5">
@@ -102,9 +141,9 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
           <h1 className="text-xl font-bold text-gray-800">Soins de la consultation</h1>
           <p className="text-sm text-gray-500">{consultation.patient_nom} — {new Date(consultation.date).toLocaleDateString('fr-FR')}</p>
         </div>
-        <Dialog open={openSoin} onOpenChange={setOpenSoin}>
+        <Dialog open={openSoin} onOpenChange={(v) => { setOpenSoin(v); if (!v) { reset({ actes: [] }); setEditingSoin(null) } }}>
           <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Ajouter un soin</Button>} />
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-xl">
             <DialogHeader>
               <DialogTitle>{editingSoin ? 'Modifier le soin' : 'Nouveau soin'}</DialogTitle>
             </DialogHeader>
@@ -129,6 +168,44 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
                   {STATUTS_SOIN.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                 </select>
               </div>
+
+              {/* Actes */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label>Actes réalisés</Label>
+                  <button type="button" onClick={() => append({ acte: '', qte: 1, prix: 0 })}
+                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800">
+                    <PlusCircle className="h-3.5 w-3.5" /> Ajouter un acte
+                  </button>
+                </div>
+                {fields.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-2 border border-dashed border-gray-200 rounded-lg">
+                    Aucun acte — cliquez sur "Ajouter un acte"
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-[1fr_60px_90px_28px] gap-2 text-xs font-semibold text-gray-500 px-1">
+                      <span>Acte</span><span>Qté</span><span>Prix unit.</span><span></span>
+                    </div>
+                    {fields.map((f, i) => (
+                      <div key={f.id} className="grid grid-cols-[1fr_60px_90px_28px] gap-2 items-center">
+                        <Input {...register(`actes.${i}.acte`)} placeholder="Pansement..." className="h-7 text-xs" />
+                        <Input type="number" {...register(`actes.${i}.qte`, { valueAsNumber: true })} min={1} className="h-7 text-xs" />
+                        <Input type="number" {...register(`actes.${i}.prix`, { valueAsNumber: true })} min={0} placeholder="GNF" className="h-7 text-xs" />
+                        <button type="button" onClick={() => removeField(i)} className="text-red-400 hover:text-red-600">
+                          <XCircleIcon className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                    {totalLocal > 0 && (
+                      <div className="flex justify-end pt-1">
+                        <span className="text-sm font-semibold text-gray-700">Total : {fmt(totalLocal)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div>
                 <Label>Notes</Label>
                 <textarea {...register('notes')} rows={2} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none" placeholder="Observations..." />
@@ -186,7 +263,8 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
                 <tr>
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Type de soin</th>
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Date</th>
-                  <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Infirmier</th>
+                  <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Actes</th>
+                  <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Montant</th>
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Statut</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -198,7 +276,16 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
                     <td className="px-4 py-3 text-sm text-gray-600">
                       {new Date(s.date).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{s.infirmier_nom || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">
+                      {s.actes.length > 0 ? (
+                        <span className="inline-flex items-center px-2 py-0.5 bg-purple-50 text-purple-700 text-xs rounded-full font-medium">
+                          {s.actes.length} acte{s.actes.length > 1 ? 's' : ''}
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-700">
+                      {Number(s.montant_total) > 0 ? fmt(s.montant_total) : '—'}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-1 text-xs rounded-full font-medium ${statutStyle(s.statut, STATUTS_SOIN)}`}>
                         {statutLabel(s.statut, STATUTS_SOIN)}
@@ -210,7 +297,7 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                         <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => confirm('Supprimer ce soin ?') && remove.mutate(s.id)}>
+                          onClick={() => confirm('Supprimer ce soin ?') && removeSoin.mutate(s.id)}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
