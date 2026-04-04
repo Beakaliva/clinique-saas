@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import PatientSelect from '@/components/ui/patient-select'
 import {
   Plus, Search, Stethoscope, User, ChevronLeft, ChevronRight,
-  Pencil, Trash2, Heart, ArrowLeft, CheckCircle2, Clock, XCircle,
+  Pencil, Trash2, Heart, ArrowLeft, CheckCircle2, Clock, XCircle, HeartPulse,
 } from 'lucide-react'
 
 // ── Statuts ──────────────────────────────────────────────────────────────
@@ -52,9 +52,9 @@ function fetchSoinsByConsultation(consultationId: number) {
 
 // ── Panel soins d'une consultation ────────────────────────────────────────
 
-function SoinsPanel({ consultation, onBack }: { consultation: Consultation; onBack: () => void }) {
+function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: Consultation; onBack: () => void; autoOpen?: boolean }) {
   const qc = useQueryClient()
-  const [openSoin, setOpenSoin] = useState(false)
+  const [openSoin, setOpenSoin] = useState(autoOpen)
   const [editingSoin, setEditingSoin] = useState<Soin | null>(null)
 
   const { data: soins = [], isLoading } = useQuery({
@@ -235,6 +235,7 @@ export default function ConsultationsPage() {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Consultation | null>(null)
   const [viewSoins, setViewSoins] = useState<Consultation | null>(null)
+  const [autoOpenSoin, setAutoOpenSoin] = useState(false)
   const [patientId, setPatientId] = useState<number | null>(null)
 
   const { data, isLoading } = useQuery({
@@ -273,7 +274,13 @@ export default function ConsultationsPage() {
 
   // Afficher le panel soins si une consultation est sélectionnée
   if (viewSoins) {
-    return <SoinsPanel consultation={viewSoins} onBack={() => setViewSoins(null)} />
+    return (
+      <SoinsPanel
+        consultation={viewSoins}
+        autoOpen={autoOpenSoin}
+        onBack={() => { setViewSoins(null); setAutoOpenSoin(false) }}
+      />
+    )
   }
 
   function StatutIcon({ statut }: { statut: string }) {
@@ -327,11 +334,28 @@ export default function ConsultationsPage() {
                 <Label>Notes</Label>
                 <textarea {...register('notes')} rows={2} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none" placeholder="Notes cliniques..." />
               </div>
-              <div className="flex gap-3 justify-end">
-                <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-                <Button type="submit" disabled={save.isPending || !patientId}>
-                  {save.isPending ? 'Enregistrement...' : 'Enregistrer'}
-                </Button>
+              <div className={`flex gap-3 ${editing ? 'justify-between' : 'justify-end'}`}>
+                {editing && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex items-center gap-2 text-rose-600 border-rose-200 hover:bg-rose-50"
+                    onClick={() => {
+                      setOpen(false)
+                      setAutoOpenSoin(true)
+                      setViewSoins(editing)
+                    }}
+                  >
+                    <HeartPulse className="h-4 w-4" />
+                    Créer un soin
+                  </Button>
+                )}
+                <div className="flex gap-3">
+                  <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
+                  <Button type="submit" disabled={save.isPending || !patientId}>
+                    {save.isPending ? 'Enregistrement...' : 'Enregistrer'}
+                  </Button>
+                </div>
               </div>
             </form>
           </DialogContent>
