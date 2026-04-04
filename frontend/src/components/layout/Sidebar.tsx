@@ -5,12 +5,13 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/auth.store'
 import {
   LayoutDashboard, Users, Calendar, Stethoscope,
-  Heart, LogOut, Building2, ChevronRight,
+  Heart, LogOut, Building2, ChevronRight, FolderOpen,
 } from 'lucide-react'
 
 const NAV = [
   { href: '/dashboard',               label: 'Tableau de bord',  icon: LayoutDashboard, module: null },
   { href: '/dashboard/patients',      label: 'Patients',          icon: Users,           module: 'patients' },
+  { href: '/dashboard/dossiers',      label: 'Dossiers',          icon: FolderOpen,      module: 'dossiers' },
   { href: '/dashboard/rendez-vous',   label: 'Rendez-vous',       icon: Calendar,        module: 'rendez_vous' },
   { href: '/dashboard/consultations', label: 'Consultations',     icon: Stethoscope,     module: 'consultations' },
   { href: '/dashboard/soins',         label: 'Soins',             icon: Heart,           module: 'soins' },

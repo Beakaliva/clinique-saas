@@ -151,6 +151,31 @@ export interface Consultation {
   updated_at: string
 }
 
+// ── Dossier médical ───────────────────────────────────────────────────────
+
+export interface Antecedent {
+  id: number
+  type: 'medical' | 'chirurgical' | 'familial' | 'autre'
+  type_label: string
+  description: string
+  date: string | null
+}
+
+export interface DossierMedical {
+  id: number
+  patient: number
+  patient_nom: string
+  groupe_sanguin: string
+  groupe_sanguin_label: string
+  antecedents: string
+  allergies: string
+  traitements_en_cours: string
+  notes: string
+  liste_antecedents: Antecedent[]
+  created_at: string
+  updated_at: string
+}
+
 // ── Pagination ────────────────────────────────────────────────────────────
 
 export interface PaginatedResponse<T> {
