@@ -4,7 +4,7 @@ import { useState, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import api from '@/lib/api'
-import type { DossierMedical, Antecedent, Patient, PaginatedResponse } from '@/types'
+import type { DossierMedical, Antecedent, Ordonnance, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import PatientSelect from '@/components/ui/patient-select'
 import {
   Search, FolderOpen, User, ArrowLeft, Pencil, Trash2, Plus,
-  Droplets, AlertTriangle, Pill, FileText, ClipboardList,
+  Droplets, AlertTriangle, Pill, FileText, ClipboardList, ScrollText,
 } from 'lucide-react'
 
 // ── Constantes ────────────────────────────────────────────────────────────
@@ -41,6 +41,10 @@ function fetchDossierByPatient(patientId: number) {
   return api.get<DossierMedical>(`/dossiers/patient/${patientId}/`).then(r => r.data)
 }
 
+function fetchOrdonnancesPatient(patientId: number) {
+  return api.get<PaginatedResponse<Ordonnance>>('/ordonnances/', { params: { patient: patientId, page_size: 50 } }).then(r => r.data.results)
+}
+
 // ── Vue dossier d'un patient ──────────────────────────────────────────────
 
 function DossierView({ patientId, patientNom, onBack }: { patientId: number; patientNom: string; onBack: () => void }) {
@@ -52,6 +56,11 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
   const { data: dossier, isLoading } = useQuery({
     queryKey: ['dossier', patientId],
     queryFn: () => fetchDossierByPatient(patientId),
+  })
+
+  const { data: ordonnances = [] } = useQuery({
+    queryKey: ['ordonnances-patient', patientId],
+    queryFn: () => fetchOrdonnancesPatient(patientId),
   })
 
   // Formulaire dossier principal
@@ -134,10 +143,6 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
               <textarea {...dossierForm.register('allergies')} rows={2} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none" placeholder="Pénicilline, arachides..." />
             </div>
             <div>
-              <Label>Traitements en cours</Label>
-              <textarea {...dossierForm.register('traitements_en_cours')} rows={2} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none" placeholder="Metformine 500mg..." />
-            </div>
-            <div>
               <Label>Antécédents (résumé libre)</Label>
               <textarea {...dossierForm.register('antecedents')} rows={2} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none" placeholder="Résumé général..." />
             </div>
@@ -177,30 +182,74 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
           </CardContent>
         </Card>
 
-        <Card className="border-0 shadow-sm lg:col-span-3">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Pill className="h-4 w-4 text-blue-500" />
-              <p className="text-sm font-semibold text-gray-700">Traitements en cours</p>
-            </div>
-            <p className="text-sm text-gray-600">
-              {dossier.traitements_en_cours || <span className="text-gray-400 italic">Aucun traitement en cours</span>}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-sm lg:col-span-3">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <FileText className="h-4 w-4 text-gray-500" />
-              <p className="text-sm font-semibold text-gray-700">Notes</p>
-            </div>
-            <p className="text-sm text-gray-600">
-              {dossier.notes || <span className="text-gray-400 italic">Aucune note</span>}
-            </p>
-          </CardContent>
-        </Card>
+        {dossier.notes && (
+          <Card className="border-0 shadow-sm lg:col-span-3">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <FileText className="h-4 w-4 text-gray-500" />
+                <p className="text-sm font-semibold text-gray-700">Notes</p>
+              </div>
+              <p className="text-sm text-gray-600">{dossier.notes}</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
+
+      {/* Ordonnances / Traitements */}
+      <Card className="border-0 shadow-sm overflow-hidden">
+        <CardHeader className="px-4 pt-4 pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <ScrollText className="h-4 w-4 text-blue-500" />
+            Ordonnances &amp; traitements ({ordonnances.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {ordonnances.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-16 text-gray-400">
+              <p className="text-sm">Aucune ordonnance enregistrée pour ce patient</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {ordonnances.map(o => (
+                <div key={o.id} className="px-4 py-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-gray-500">
+                        {new Date(o.date).toLocaleDateString('fr-FR')}
+                      </span>
+                      {o.medecin_nom && (
+                        <span className="text-xs text-gray-400">· Dr {o.medecin_nom}</span>
+                      )}
+                      {o.consultation && (
+                        <span className="inline-flex items-center px-2 py-0.5 bg-blue-50 text-blue-600 text-xs rounded-full">
+                          Consultation #{o.consultation}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {o.lignes.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {o.lignes.map(l => (
+                        <div key={l.id} className="flex items-start gap-2 p-2 bg-blue-50/50 rounded-lg">
+                          <Pill className="h-3.5 w-3.5 text-blue-500 mt-0.5 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-gray-800 truncate">{l.medicament}</p>
+                            <p className="text-xs text-gray-500">{l.posologie}{l.duree ? ` · ${l.duree}` : ''}</p>
+                            {l.quantite > 1 && <p className="text-xs text-gray-400">Qté : {l.quantite}</p>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400 italic">Ordonnance sans médicaments</p>
+                  )}
+                  {o.notes && <p className="text-xs text-gray-500 mt-2 italic">{o.notes}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Antécédents */}
       <Card className="border-0 shadow-sm overflow-hidden">

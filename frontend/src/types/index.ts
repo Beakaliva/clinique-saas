@@ -151,6 +151,31 @@ export interface Consultation {
   updated_at: string
 }
 
+// ── Ordonnance ────────────────────────────────────────────────────────────
+
+export interface LigneOrdonnance {
+  id: number
+  medicament: string
+  posologie: string
+  duree: string
+  quantite: number
+  notes: string
+}
+
+export interface Ordonnance {
+  id: number
+  patient: number
+  patient_nom: string
+  medecin: number | null
+  medecin_nom: string | null
+  consultation: number | null
+  date: string
+  notes: string
+  lignes: LigneOrdonnance[]
+  created_at: string
+  updated_at: string
+}
+
 // ── Dossier médical ───────────────────────────────────────────────────────
 
 export interface Antecedent {

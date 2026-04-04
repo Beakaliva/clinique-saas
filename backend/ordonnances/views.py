@@ -1,4 +1,5 @@
-from rest_framework import generics
+from rest_framework import generics, filters
+from django_filters.rest_framework import DjangoFilterBackend
 
 from config.mixins import ClinicScopedMixin
 from .models import LigneOrdonnance, Ordonnance
@@ -6,15 +7,17 @@ from .serializers import LigneOrdonnanceSerializer, OrdonnanceSerializer
 
 
 class OrdonnanceListCreateView(ClinicScopedMixin, generics.ListCreateAPIView):
-    queryset         = Ordonnance.objects.select_related('patient', 'medecin')
+    queryset         = Ordonnance.objects.select_related('patient', 'medecin').prefetch_related('lignes')
     serializer_class = OrdonnanceSerializer
+    filter_backends  = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['patient', 'consultation']
     search_fields    = ['patient__last_name', 'patient__first_name']
     ordering_fields  = ['date']
     ordering         = ['-date']
 
 
 class OrdonnanceDetailView(ClinicScopedMixin, generics.RetrieveUpdateDestroyAPIView):
-    queryset         = Ordonnance.objects.select_related('patient', 'medecin')
+    queryset         = Ordonnance.objects.select_related('patient', 'medecin').prefetch_related('lignes')
     serializer_class = OrdonnanceSerializer
 
 
