@@ -101,6 +101,16 @@ export interface RendezVous {
   updated_at: string
 }
 
+// ── SoinActe ─────────────────────────────────────────────────────────────
+
+export interface SoinActe {
+  id: number
+  acte: string
+  qte: number
+  prix: string   // DecimalField → string en JSON DRF
+  montant: string
+}
+
 // ── Soin ──────────────────────────────────────────────────────────────────
 
 export interface Soin {
@@ -117,6 +127,8 @@ export interface Soin {
   notes: string
   statut: string
   statut_label: string
+  actes: SoinActe[]
+  montant_total: string
   created_at: string
   updated_at: string
 }

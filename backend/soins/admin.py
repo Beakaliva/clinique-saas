@@ -1,5 +1,12 @@
 from django.contrib import admin
-from .models import Soin
+
+from .models import Soin, SoinActe
+
+
+class SoinActeInline(admin.TabularInline):
+    model  = SoinActe
+    extra  = 1
+    fields = ('acte', 'qte', 'prix')
 
 
 @admin.register(Soin)
@@ -8,3 +15,4 @@ class SoinAdmin(admin.ModelAdmin):
     list_filter   = ('statut', 'clinic')
     search_fields = ('patient__last_name', 'patient__first_name', 'type_soin')
     ordering      = ('-date',)
+    inlines       = [SoinActeInline]
