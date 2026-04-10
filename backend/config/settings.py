@@ -1,6 +1,7 @@
 from datetime import timedelta
 from pathlib import Path
 
+import dj_database_url
 from decouple import Csv, config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,6 +24,7 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
+    'whitenoise.runserver_nostatic',
     'django.contrib.staticfiles',
 
     # Tiers
@@ -61,6 +63,7 @@ CLINIC_TYPE = config('CLINIC_TYPE', default='generale')
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',          # ← CORS avant CommonMiddleware
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -90,23 +93,28 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 
 # ---------------------------------------------------------------------------
-# Base de données — MySQL
+# Base de données — PostgreSQL (prod via DATABASE_URL) ou MySQL (local)
 # ---------------------------------------------------------------------------
 
-DATABASES = {
-    'default': {
-        'ENGINE':   'django.db.backends.mysql',
-        'NAME':     config('DB_NAME'),
-        'USER':     config('DB_USER'),
-        'PASSWORD': config('DB_PASSWORD'),
-        'HOST':     config('DB_HOST', default='localhost'),
-        'PORT':     config('DB_PORT', default='3306'),
-        'OPTIONS': {
-            'charset': 'utf8mb4',
-            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
-        },
+DATABASE_URL = config('DATABASE_URL', default='')
+
+if DATABASE_URL:
+    DATABASES = {'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600)}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE':   'django.db.backends.mysql',
+            'NAME':     config('DB_NAME'),
+            'USER':     config('DB_USER'),
+            'PASSWORD': config('DB_PASSWORD'),
+            'HOST':     config('DB_HOST', default='localhost'),
+            'PORT':     config('DB_PORT', default='3306'),
+            'OPTIONS': {
+                'charset': 'utf8mb4',
+                'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+            },
+        }
     }
-}
 
 # ---------------------------------------------------------------------------
 # DRF + JWT
@@ -147,6 +155,8 @@ if DEBUG:
 else:
     CORS_ALLOWED_ORIGINS = [FRONTEND_URL]
 CORS_ALLOW_CREDENTIALS = True
+
+CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='http://localhost:3000', cast=Csv())
 
 # ---------------------------------------------------------------------------
 # Clés API externes
@@ -204,6 +214,7 @@ USE_TZ        = True
 
 STATIC_URL  = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL  = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'

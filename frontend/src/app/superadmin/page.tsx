@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import {
   Building2, Users, User as UserIcon, Activity, CheckCircle2, XCircle,
   Pencil, LogIn, ArrowLeft, Phone, Mail, MapPin, Search,
-  ShieldAlert,
+  ShieldAlert, Plus,
 } from 'lucide-react'
 
 interface ClinicStat {
@@ -24,6 +24,21 @@ interface ClinicStat {
   users_count: number; patients_count: number
 }
 interface ClinicEditForm { name: string; telephone: string; email: string; adresse: string; is_active: boolean }
+interface ClinicCreateForm {
+  clinic_name: string; clinic_type: string
+  clinic_telephone: string; clinic_email: string; clinic_adresse: string
+  first_name: string; last_name: string; telephone: string; email: string
+  password: string; password2: string
+}
+
+const CLINIC_TYPES = [
+  { value: 'generale',      label: 'Clinique générale / Polyclinique' },
+  { value: 'dentaire',      label: 'Clinique dentaire' },
+  { value: 'pediatrique',   label: 'Clinique pédiatrique' },
+  { value: 'ophtalmologie', label: 'Clinique ophtalmologique' },
+  { value: 'maternite',     label: 'Maternité' },
+  { value: 'psychiatrie',   label: 'Clinique psychiatrique' },
+]
 
 const TYPE_COLORS: Record<string, string> = {
   generale:      'bg-blue-50 text-blue-700',
@@ -42,19 +57,7 @@ export default function SuperAdminPage() {
   const [search, setSearch]       = useState('')
   const [editClinic, setEditClinic] = useState<ClinicStat | null>(null)
   const [viewUsers, setViewUsers]   = useState<ClinicStat | null>(null)
-
-  // Guard superuser
-  if (me && !me.is_superuser) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center space-y-3">
-          <ShieldAlert className="h-12 w-12 text-red-400 mx-auto" />
-          <p className="text-gray-600 font-medium">Accès réservé aux superutilisateurs.</p>
-          <Button onClick={() => router.push('/dashboard')}>Retour au dashboard</Button>
-        </div>
-      </div>
-    )
-  }
+  const [openCreate, setOpenCreate] = useState(false)
 
   // ── Queries ──────────────────────────────────────────────────────────
   const { data: clinics = [], isLoading } = useQuery({
@@ -69,12 +72,23 @@ export default function SuperAdminPage() {
   })
 
   // ── Forms & Mutations ─────────────────────────────────────────────────
-  const editForm = useForm<ClinicEditForm>()
+  const editForm   = useForm<ClinicEditForm>()
+  const createForm = useForm<ClinicCreateForm>({ defaultValues: { clinic_type: 'generale' } })
 
   const updateClinic = useMutation({
     mutationFn: ({ id, data }: { id: number; data: ClinicEditForm }) =>
       api.patch(`/superadmin/clinics/${id}/`, data).then(r => r.data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['sa-clinics'] }); setEditClinic(null) },
+  })
+
+  const createClinic = useMutation({
+    mutationFn: (data: ClinicCreateForm) =>
+      api.post('/auth/register/', data).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sa-clinics'] })
+      setOpenCreate(false)
+      createForm.reset({ clinic_type: 'generale' })
+    },
   })
 
   const impersonateMutation = useMutation({
@@ -103,8 +117,70 @@ export default function SuperAdminPage() {
   const totalUsers    = clinics.reduce((s, c) => s + c.users_count, 0)
   const totalPatients = clinics.reduce((s, c) => s + c.patients_count, 0)
 
+  // Guard superuser — après tous les hooks
+  if (me && !me.is_superuser) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center space-y-3">
+          <ShieldAlert className="h-12 w-12 text-red-400 mx-auto" />
+          <p className="text-gray-600 font-medium">Accès réservé aux superutilisateurs.</p>
+          <Button onClick={() => router.push('/dashboard')}>Retour au dashboard</Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
+
+      {/* Dialog créer clinique */}
+      <Dialog open={openCreate} onOpenChange={v => { if (!v) { setOpenCreate(false); createForm.reset({ clinic_type: 'generale' }) } }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Créer une nouvelle clinique</DialogTitle></DialogHeader>
+          <form onSubmit={createForm.handleSubmit(d => createClinic.mutate(d))} className="space-y-5">
+
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Informations de la clinique</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2"><Label>Nom de la clinique *</Label><Input {...createForm.register('clinic_name', { required: true })} placeholder="Ex: Clinique Al Shifa" /></div>
+                <div className="col-span-2">
+                  <Label>Type de clinique *</Label>
+                  <select {...createForm.register('clinic_type', { required: true })} className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm">
+                    {CLINIC_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+                <div><Label>Téléphone</Label><Input {...createForm.register('clinic_telephone')} placeholder="+213..." /></div>
+                <div><Label>Email</Label><Input type="email" {...createForm.register('clinic_email')} placeholder="contact@..." /></div>
+                <div className="col-span-2"><Label>Adresse</Label><Input {...createForm.register('clinic_adresse')} /></div>
+              </div>
+            </div>
+
+            <div className="border-t border-gray-100 pt-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Administrateur de la clinique</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Prénom *</Label><Input {...createForm.register('first_name', { required: true })} /></div>
+                <div><Label>Nom *</Label><Input {...createForm.register('last_name', { required: true })} /></div>
+                <div><Label>Téléphone *</Label><Input {...createForm.register('telephone', { required: true })} placeholder="+213..." /></div>
+                <div><Label>Email</Label><Input type="email" {...createForm.register('email')} /></div>
+                <div><Label>Mot de passe *</Label><Input type="password" {...createForm.register('password', { required: true, minLength: 8 })} /></div>
+                <div><Label>Confirmer *</Label><Input type="password" {...createForm.register('password2', { required: true })} /></div>
+              </div>
+            </div>
+
+            {createClinic.isError && (
+              <p className="text-xs text-red-500">
+                {(createClinic.error as { response?: { data?: { detail?: string; telephone?: string[] } } })?.response?.data?.detail
+                  || (createClinic.error as { response?: { data?: { telephone?: string[] } } })?.response?.data?.telephone?.[0]
+                  || 'Erreur lors de la création.'}
+              </p>
+            )}
+            <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">
+              <Button type="button" variant="outline" onClick={() => { setOpenCreate(false); createForm.reset({ clinic_type: 'generale' }) }}>Annuler</Button>
+              <Button type="submit" disabled={createClinic.isPending}>{createClinic.isPending ? 'Création...' : 'Créer la clinique'}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog modifier clinique */}
       <Dialog open={!!editClinic} onOpenChange={v => { if (!v) setEditClinic(null) }}>
@@ -179,6 +255,9 @@ export default function SuperAdminPage() {
               <ArrowLeft className="h-3.5 w-3.5" /> Quitter l'impersonation
             </Button>
           )}
+          <Button size="sm" onClick={() => setOpenCreate(true)} className="flex items-center gap-1">
+            <Plus className="h-3.5 w-3.5" /> Nouvelle clinique
+          </Button>
           <Button variant="outline" size="sm" onClick={() => router.push('/dashboard')} className="flex items-center gap-1">
             <LogIn className="h-3.5 w-3.5" /> Mon dashboard
           </Button>
