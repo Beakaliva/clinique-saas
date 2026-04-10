@@ -14,6 +14,7 @@ from .views import (
     SuperAdminClinicDetailView,
     SuperAdminClinicUsersView,
     SuperAdminImpersonateView,
+    StatsView,
 )
 
 app_name = "users"
@@ -35,6 +36,9 @@ urlpatterns = [
 
     # ── Clinique ──────────────────────────────────────────────────────────
     path("clinic/",               ClinicUpdateView.as_view(),   name="clinic"),
+
+    # ── Stats dashboard ───────────────────────────────────────────────────
+    path("stats/",                          StatsView.as_view(),                  name="stats"),
 
     # ── Super Admin ───────────────────────────────────────────────────────
     path("superadmin/clinics/",            SuperAdminClinicListView.as_view(),   name="sa-clinic-list"),

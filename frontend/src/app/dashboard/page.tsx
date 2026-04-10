@@ -15,8 +15,15 @@ import {
   Activity, Building2, ShieldCheck, Pill,
 } from 'lucide-react'
 
-const fetchCount = (url: string) => api.get(url).then(r => r.data.count ?? 0)
-const fetchList  = (url: string) => api.get(url).then(r => r.data.results ?? r.data ?? [])
+interface StatsData {
+  totals: { patients: number; consultations: number; rdv: number; soins: number; factures: number; ordonnances: number }
+  monthly_patients: { mois: string; valeur: number }[]
+  weekly_patients:  { jour: string; valeur: number }[]
+  monthly_compare:  { mois: string; patients: number; consultations: number }[]
+  pie: { name: string; value: number }[]
+}
+
+interface Patient { id: number; first_name: string; last_name: string; telephone?: string }
 
 const QUICK_ACTIONS = [
   { href: '/dashboard/patients',      label: 'Nouveau patient', icon: UserPlus,      color: 'bg-blue-500',   module: 'patients' },
@@ -28,44 +35,27 @@ const QUICK_ACTIONS = [
 ]
 
 const MODULES = [
-  { href: '/dashboard/patients',         label: 'Patients',      icon: Users,         color: 'text-blue-600',   bg: 'bg-blue-50',   module: 'patients' },
-  { href: '/dashboard/rendez-vous',      label: 'Rendez-vous',   icon: Calendar,      color: 'text-green-600',  bg: 'bg-green-50',  module: 'rendez_vous' },
-  { href: '/dashboard/consultations',    label: 'Consultations', icon: Stethoscope,   color: 'text-purple-600', bg: 'bg-purple-50', module: 'consultations' },
-  { href: '/dashboard/soins',            label: 'Soins',         icon: Heart,         color: 'text-rose-600',   bg: 'bg-rose-50',   module: 'soins' },
-  { href: '/dashboard/dossiers',         label: 'Dossiers',      icon: FolderOpen,    color: 'text-cyan-600',   bg: 'bg-cyan-50',   module: 'dossiers_medicaux' },
-  { href: '/dashboard/ordonnances',      label: 'Ordonnances',   icon: ClipboardList, color: 'text-orange-600', bg: 'bg-orange-50', module: 'ordonnances' },
-  { href: '/dashboard/pharmacie',        label: 'Pharmacie',     icon: Pill,          color: 'text-teal-600',   bg: 'bg-teal-50',   module: 'pharmacie' },
-  { href: '/dashboard/factures',         label: 'Facturation',   icon: Receipt,       color: 'text-indigo-600', bg: 'bg-indigo-50', module: 'factures' },
+  { href: '/dashboard/patients',      label: 'Patients',      icon: Users,         color: 'text-blue-600',   bg: 'bg-blue-50',   module: 'patients' },
+  { href: '/dashboard/rendez-vous',   label: 'Rendez-vous',   icon: Calendar,      color: 'text-green-600',  bg: 'bg-green-50',  module: 'rendez_vous' },
+  { href: '/dashboard/consultations', label: 'Consultations', icon: Stethoscope,   color: 'text-purple-600', bg: 'bg-purple-50', module: 'consultations' },
+  { href: '/dashboard/soins',         label: 'Soins',         icon: Heart,         color: 'text-rose-600',   bg: 'bg-rose-50',   module: 'soins' },
+  { href: '/dashboard/dossiers',      label: 'Dossiers',      icon: FolderOpen,    color: 'text-cyan-600',   bg: 'bg-cyan-50',   module: 'dossiers_medicaux' },
+  { href: '/dashboard/ordonnances',   label: 'Ordonnances',   icon: ClipboardList, color: 'text-orange-600', bg: 'bg-orange-50', module: 'ordonnances' },
+  { href: '/dashboard/pharmacie',     label: 'Pharmacie',     icon: Pill,          color: 'text-teal-600',   bg: 'bg-teal-50',   module: 'pharmacie' },
+  { href: '/dashboard/factures',      label: 'Facturation',   icon: Receipt,       color: 'text-indigo-600', bg: 'bg-indigo-50', module: 'factures' },
 ]
-
-// Génère les 7 derniers jours pour le graphe (données simulées basées sur les totaux)
-function buildWeekData(total: number) {
-  const days = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
-  const today = new Date().getDay() // 0=dim
-  return days.map((day, i) => ({
-    day,
-    valeur: i <= ((today + 6) % 7) ? Math.max(1, Math.floor(total * (0.05 + Math.random() * 0.2))) : 0,
-  }))
-}
-
-interface Patient {
-  id: number
-  first_name: string
-  last_name: string
-  telephone?: string
-}
 
 export default function DashboardPage() {
   const { user, clinic, canAccess } = useAuthStore()
 
-  const { data: patientsCount = 0 } = useQuery({ queryKey: ['dash-patients'],  queryFn: () => fetchCount('/patients/'),        enabled: canAccess('patients') })
-  const { data: consultCount  = 0 } = useQuery({ queryKey: ['dash-consult'],   queryFn: () => fetchCount('/consultations/'),   enabled: canAccess('consultations') })
-  const { data: rdvCount      = 0 } = useQuery({ queryKey: ['dash-rdv'],       queryFn: () => fetchCount('/rendez-vous/'),     enabled: canAccess('rendez_vous') })
-  const { data: soinsCount    = 0 } = useQuery({ queryKey: ['dash-soins'],     queryFn: () => fetchCount('/soins/'),           enabled: canAccess('soins') })
+  const { data: stats } = useQuery<StatsData>({
+    queryKey: ['dashboard-stats'],
+    queryFn: () => api.get('/stats/').then(r => r.data),
+  })
 
   const { data: recentPatients = [] } = useQuery<Patient[]>({
     queryKey: ['dash-recent-patients'],
-    queryFn: () => fetchList('/patients/?ordering=-created_at&page_size=6'),
+    queryFn: () => api.get('/patients/?ordering=-created_at&page_size=6').then(r => r.data.results ?? []),
     enabled: canAccess('patients'),
   })
 
@@ -73,26 +63,19 @@ export default function DashboardPage() {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   })
 
+  const t = stats?.totals
   const STATS = [
-    { label: 'Patients',       value: patientsCount, icon: Users,       color: 'text-blue-600',   bg: 'bg-blue-50',   module: 'patients' },
-    { label: 'Consultations',  value: consultCount,  icon: Stethoscope, color: 'text-purple-600', bg: 'bg-purple-50', module: 'consultations' },
-    { label: 'Rendez-vous',    value: rdvCount,      icon: Calendar,    color: 'text-green-600',  bg: 'bg-green-50',  module: 'rendez_vous' },
-    { label: 'Soins',          value: soinsCount,    icon: Heart,       color: 'text-rose-600',   bg: 'bg-rose-50',   module: 'soins' },
-  ]
-
-  const weekPatients = buildWeekData(patientsCount)
-  const activityData = [
-    { name: 'Patients',      valeur: patientsCount, fill: '#3b82f6' },
-    { name: 'Consult.',      valeur: consultCount,  fill: '#a855f7' },
-    { name: 'Rdv',           valeur: rdvCount,      fill: '#22c55e' },
-    { name: 'Soins',         valeur: soinsCount,    fill: '#f43f5e' },
+    { label: 'Patients',      value: t?.patients      ?? '—', icon: Users,       color: 'text-blue-600',   bg: 'bg-blue-50',   module: 'patients' },
+    { label: 'Consultations', value: t?.consultations  ?? '—', icon: Stethoscope, color: 'text-purple-600', bg: 'bg-purple-50', module: 'consultations' },
+    { label: 'Rendez-vous',   value: t?.rdv            ?? '—', icon: Calendar,    color: 'text-green-600',  bg: 'bg-green-50',  module: 'rendez_vous' },
+    { label: 'Soins',         value: t?.soins          ?? '—', icon: Heart,       color: 'text-rose-600',   bg: 'bg-rose-50',   module: 'soins' },
   ]
 
   return (
     <div className="space-y-5 max-w-7xl mx-auto">
 
-      {/* ── Banner ── */}
-      <div className="rounded-2xl bg-gradient-to-br from-blue-600 via-blue-600 to-blue-500 p-6 text-white shadow-md">
+      {/* Banner */}
+      <div className="rounded-2xl bg-gradient-to-br from-blue-600 to-blue-500 p-6 text-white shadow-md">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-blue-100 text-sm capitalize">{dateLabel}</p>
@@ -113,7 +96,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Stats ── */}
+      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {STATS.map(({ label, icon: Icon, value, color, bg, module }) => {
           if (!canAccess(module)) return null
@@ -131,20 +114,18 @@ export default function DashboardPage() {
         })}
       </div>
 
-      {/* ── Graphes ── */}
+      {/* Graphes */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-        {/* Évolution patients / semaine */}
         <div className="bg-white rounded-2xl shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="font-semibold text-gray-800 text-sm">Activité — 7 jours</h2>
+              <h2 className="font-semibold text-gray-800 text-sm">Patients — 7 derniers jours</h2>
               <p className="text-xs text-gray-400">Nouveaux enregistrements</p>
             </div>
             <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-lg font-medium">Cette semaine</span>
           </div>
           <ResponsiveContainer width="100%" height={160}>
-            <AreaChart data={weekPatients} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+            <AreaChart data={stats?.weekly_patients ?? []} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="colorBlue" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.15} />
@@ -152,41 +133,36 @@ export default function DashboardPage() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+              <XAxis dataKey="jour"   tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+              <YAxis                  tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
               <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-              <Area type="monotone" dataKey="valeur" name="Enreg." stroke="#3b82f6" strokeWidth={2} fill="url(#colorBlue)" dot={{ r: 3, fill: '#3b82f6' }} />
+              <Area type="monotone" dataKey="valeur" name="Patients" stroke="#3b82f6" strokeWidth={2} fill="url(#colorBlue)" dot={{ r: 3, fill: '#3b82f6' }} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Vue d'ensemble modules */}
         <div className="bg-white rounded-2xl shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="font-semibold text-gray-800 text-sm">Vue d'ensemble</h2>
-              <p className="text-xs text-gray-400">Total par module</p>
+              <h2 className="font-semibold text-gray-800 text-sm">Patients vs Consultations</h2>
+              <p className="text-xs text-gray-400">Par mois — {new Date().getFullYear()}</p>
             </div>
-            <span className="text-xs bg-purple-50 text-purple-600 px-2 py-1 rounded-lg font-medium">Cumul total</span>
+            <span className="text-xs bg-purple-50 text-purple-600 px-2 py-1 rounded-lg font-medium">Annuel</span>
           </div>
           <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={activityData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+            <BarChart data={stats?.monthly_compare ?? []} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+              <XAxis dataKey="mois"   tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+              <YAxis                  tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
               <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-              <Bar dataKey="valeur" name="Total" radius={[6, 6, 0, 0]}>
-                {activityData.map((entry, i) => (
-                  <rect key={i} fill={entry.fill} />
-                ))}
-              </Bar>
+              <Bar dataKey="patients"      name="Patients"      fill="#3b82f6" radius={[4,4,0,0]} />
+              <Bar dataKey="consultations" name="Consultations" fill="#a855f7" radius={[4,4,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
-
       </div>
 
-      {/* ── Actions rapides ── */}
+      {/* Actions rapides */}
       <div className="bg-white rounded-2xl shadow-sm p-5">
         <div className="flex items-center gap-2 mb-4">
           <Plus className="h-4 w-4 text-gray-500" />
@@ -208,10 +184,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Grille basse ── */}
+      {/* Grille basse */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-
-        {/* Derniers patients */}
         {canAccess('patients') && (
           <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm p-5">
             <div className="flex items-center justify-between mb-4">
@@ -227,7 +201,7 @@ export default function DashboardPage() {
               <div className="text-center py-8 text-gray-400 text-sm">Aucun patient enregistré</div>
             ) : (
               <div className="space-y-1">
-                {recentPatients.map((p) => (
+                {recentPatients.map(p => (
                   <Link key={p.id} href={`/dashboard/dossiers?patient=${p.id}`}
                     className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 transition-colors group">
                     <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm shrink-0 uppercase">
@@ -245,7 +219,6 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Modules */}
         <div className="bg-white rounded-2xl shadow-sm p-5">
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="h-4 w-4 text-gray-500" />
@@ -267,7 +240,6 @@ export default function DashboardPage() {
             })}
           </div>
         </div>
-
       </div>
     </div>
   )
