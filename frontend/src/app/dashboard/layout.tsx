@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/auth.store'
 import Sidebar from '@/components/layout/Sidebar'
 import { Menu } from 'lucide-react'
 import { Building2, ShieldAlert, ArrowLeft } from 'lucide-react'
+import api from '@/lib/api'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -13,11 +14,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const clinic            = useAuthStore((s) => s.clinic)
   const superAdminSnapshot = useAuthStore((s) => s.superAdminSnapshot)
   const exitImpersonation = useAuthStore((s) => s.exitImpersonation)
+  const setUser           = useAuthStore((s) => s.setUser)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
-    if (!user) router.replace('/auth/login')
-  }, [user, router])
+    if (!user) { router.replace('/auth/login'); return }
+    // Rafraîchit les données user (modules, permissions) depuis le serveur
+    api.get('/auth/me/').then(r => setUser(r.data)).catch(() => {})
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!user) return null
 
