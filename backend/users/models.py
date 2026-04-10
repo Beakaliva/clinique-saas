@@ -79,6 +79,7 @@ class Permission(models.TextChoices):
     CRU  = "CRU",  _("Créer, Lire, Mettre à jour")
     CR   = "CR",   _("Créer, Lire")
     C    = "C",    _("Créer uniquement")
+    R    = "R",    _("Lire uniquement")
 
 
 # ---------------------------------------------------------------------------
@@ -177,19 +178,19 @@ class User(AbstractBaseUser):
 
     @property
     def can_create(self):
-        return self.permission in (Permission.C, Permission.CR, Permission.CRU, Permission.CRUD)
+        return 'C' in (self.permission or '')
 
     @property
     def can_read(self):
-        return self.permission in (Permission.CR, Permission.CRU, Permission.CRUD)
+        return 'R' in (self.permission or '')
 
     @property
     def can_update(self):
-        return self.permission in (Permission.CRU, Permission.CRUD)
+        return 'U' in (self.permission or '')
 
     @property
     def can_delete(self):
-        return self.permission == Permission.CRUD
+        return 'D' in (self.permission or '')
 
     # ── Compatibilité Django admin ─────────────────────────────────────────
 

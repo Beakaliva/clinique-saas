@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import api from '@/lib/api'
+import { useAuthStore } from '@/store/auth.store'
 import type { Patient, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,6 +19,10 @@ function fetchPatients(search: string, page: number) {
 
 export default function PatientsPage() {
   const qc = useQueryClient()
+  const { hasPermission } = useAuthStore()
+  const canC = hasPermission('C')
+  const canU = hasPermission('U')
+  const canD = hasPermission('D')
   const [search, setSearch] = useState('')
   const [page,   setPage]   = useState(1)
   const [open,   setOpen]   = useState(false)
@@ -62,7 +67,7 @@ export default function PatientsPage() {
           <p className="text-gray-500 text-sm">{data?.count ?? 0} patient(s) enregistré(s)</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Nouveau patient</Button>} />
+          {canC && <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Nouveau patient</Button>} />}
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>{editing ? 'Modifier le patient' : 'Nouveau patient'}</DialogTitle>
@@ -207,13 +212,9 @@ export default function PatientsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 justify-end">
-                        <Button size="sm" variant="ghost" onClick={() => openEdit(p)}>
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => confirm('Supprimer ce patient ?') && remove.mutate(p.id)}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        {canU && <Button size="sm" variant="ghost" onClick={() => openEdit(p)}><Pencil className="h-3.5 w-3.5" /></Button>}
+                        {canD && <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => confirm('Supprimer ce patient ?') && remove.mutate(p.id)}><Trash2 className="h-3.5 w-3.5" /></Button>}
                       </div>
                     </td>
                   </tr>

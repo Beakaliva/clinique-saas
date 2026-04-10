@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { useSearchParams, useRouter } from 'next/navigation'
 import api from '@/lib/api'
+import { useAuthStore } from '@/store/auth.store'
 import type { Soin, SoinActe, Facture, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -59,6 +60,8 @@ async function saveActes(soinId: number, actes: FormData['actes'], existingActes
 
 function SoinsContent() {
   const qc = useQueryClient()
+  const { hasPermission } = useAuthStore()
+  const canC = hasPermission('C'), canU = hasPermission('U'), canD = hasPermission('D')
   const searchParams = useSearchParams()
   const router = useRouter()
   const consultationParam = searchParams.get('consultation')
@@ -165,7 +168,7 @@ function SoinsContent() {
           </div>
         </div>
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setPatientId(null); reset({ actes: [] }); setEditing(null) } }}>
-          <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Nouveau soin</Button>} />
+          {canC && <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Nouveau soin</Button>} />}
           <DialogContent className="max-w-xl">
             <DialogHeader>
               <DialogTitle>{editing ? 'Modifier le soin' : 'Nouveau soin'}</DialogTitle>
@@ -323,13 +326,9 @@ function SoinsContent() {
                         >
                           <Receipt className="h-3.5 w-3.5" />
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => openEdit(s)}>
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => confirm('Supprimer ce soin ?') && remove_soin.mutate(s.id)}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        {canU && <Button size="sm" variant="ghost" onClick={() => openEdit(s)}><Pencil className="h-3.5 w-3.5" /></Button>}
+                        {canD && <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => confirm('Supprimer ce soin ?') && remove_soin.mutate(s.id)}><Trash2 className="h-3.5 w-3.5" /></Button>}
                       </div>
                     </td>
                   </tr>

@@ -16,10 +16,11 @@ interface AuthState {
   exitImpersonation: () => void
   logout: () => void
   canAccess: (module: string) => boolean
-  hasPermission: (level: 'C' | 'CR' | 'CRU' | 'CRUD') => boolean
+  hasPermission: (action: 'C' | 'R' | 'U' | 'D') => boolean
 }
 
-const PERMISSION_LEVELS = ['C', 'CR', 'CRU', 'CRUD']
+// Gardé pour compatibilité mais hasPermission utilise includes()
+const PERMISSION_LEVELS = ['R', 'C', 'CR', 'CRU', 'CRUD']
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -73,13 +74,13 @@ export const useAuthStore = create<AuthState>()(
         return user.modules.includes(module)
       },
 
-      hasPermission: (level) => {
+      // Vérifie si l'utilisateur possède une action : 'C'=créer, 'R'=lire, 'U'=modifier, 'D'=supprimer
+      // La permission est une chaîne de lettres ex: "CR", "CRUD", "R"
+      hasPermission: (action) => {
         const { user } = get()
         if (!user) return false
         if (user.is_superuser) return true
-        const userIdx     = PERMISSION_LEVELS.indexOf(user.permission)
-        const requiredIdx = PERMISSION_LEVELS.indexOf(level)
-        return userIdx >= requiredIdx
+        return (user.permission ?? '').includes(action)
       },
     }),
     { name: 'auth-storage' }

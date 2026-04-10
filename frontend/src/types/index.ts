@@ -39,7 +39,7 @@ export interface User {
   clinic_groups: [string, string][]
   clinic_modules: [string, string][]
   group: string
-  permission: 'CRUD' | 'CRU' | 'CR' | 'C'
+  permission: 'CRUD' | 'CRU' | 'CR' | 'C' | 'R'
   modules: string[]
   is_active: boolean
   is_staff: boolean

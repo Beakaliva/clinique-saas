@@ -4,6 +4,7 @@ import { useState, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm, useFieldArray } from 'react-hook-form'
 import api from '@/lib/api'
+import { useAuthStore } from '@/store/auth.store'
 import type { Consultation, Soin, SoinActe, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -78,6 +79,8 @@ function fmt(val: string | number) {
 
 function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: Consultation; onBack: () => void; autoOpen?: boolean }) {
   const qc = useQueryClient()
+  const { hasPermission } = useAuthStore()
+  const canC = hasPermission('C'), canU = hasPermission('U'), canD = hasPermission('D')
   const router = useRouter()
   const [openSoin, setOpenSoin] = useState(autoOpen)
   const [editingSoin, setEditingSoin] = useState<Soin | null>(null)
@@ -166,7 +169,7 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
             Voir dans Soins
           </Button>
           <Dialog open={openSoin} onOpenChange={(v) => { setOpenSoin(v); if (!v) { reset({ actes: [] }); setEditingSoin(null) } }}>
-          <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Ajouter un soin</Button>} />
+          {canC && <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Ajouter un soin</Button>} />}
           <DialogContent className="max-w-xl">
             <DialogHeader>
               <DialogTitle>{editingSoin ? 'Modifier le soin' : 'Nouveau soin'}</DialogTitle>
@@ -327,13 +330,9 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
                         >
                           <Receipt className="h-3.5 w-3.5" />
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => openEdit(s)}>
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => confirm('Supprimer ce soin ?') && removeSoin.mutate(s.id)}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        {canU && <Button size="sm" variant="ghost" onClick={() => openEdit(s)}><Pencil className="h-3.5 w-3.5" /></Button>}
+                        {canD && <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => confirm('Supprimer ce soin ?') && removeSoin.mutate(s.id)}><Trash2 className="h-3.5 w-3.5" /></Button>}
                       </div>
                     </td>
                   </tr>
@@ -370,6 +369,8 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
 
 function ConsultationsContent() {
   const qc = useQueryClient()
+  const { hasPermission } = useAuthStore()
+  const canC = hasPermission('C'), canU = hasPermission('U'), canD = hasPermission('D')
   const searchParams = useSearchParams()
   const patientParam = searchParams.get('patient')
   const patientFilter = patientParam ? Number(patientParam) : null
@@ -448,7 +449,7 @@ function ConsultationsContent() {
           <p className="text-gray-500 text-sm">{data?.count ?? 0} consultation(s) enregistrée(s)</p>
         </div>
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setPatientId(null); reset(); setEditing(null); setAddSoinAfter(false) } }}>
-          <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Nouvelle consultation</Button>} />
+          {canC && <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Nouvelle consultation</Button>} />}
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>{editing ? 'Modifier la consultation' : 'Nouvelle consultation'}</DialogTitle>
@@ -586,13 +587,9 @@ function ConsultationsContent() {
                         <Button size="sm" variant="ghost" title="Voir les soins" onClick={() => setViewSoins(c)}>
                           <Heart className="h-3.5 w-3.5 text-rose-400" />
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => openEdit(c)}>
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => confirm('Supprimer cette consultation ?') && remove.mutate(c.id)}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        {canU && <Button size="sm" variant="ghost" onClick={() => openEdit(c)}><Pencil className="h-3.5 w-3.5" /></Button>}
+                        {canD && <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => confirm('Supprimer cette consultation ?') && remove.mutate(c.id)}><Trash2 className="h-3.5 w-3.5" /></Button>}
                       </div>
                     </td>
                   </tr>
