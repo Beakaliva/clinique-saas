@@ -7,9 +7,13 @@ interface AuthState {
   clinic: Clinic | null
   accessToken: string | null
   refreshToken: string | null
+  // Impersonation superadmin
+  superAdminSnapshot: { user: User; clinic: Clinic; accessToken: string; refreshToken: string } | null
   setAuth: (user: User, clinic: Clinic, access: string, refresh: string) => void
   setUser: (user: User) => void
   setClinic: (clinic: Clinic) => void
+  impersonate: (user: User, access: string, refresh: string) => void
+  exitImpersonation: () => void
   logout: () => void
   canAccess: (module: string) => boolean
   hasPermission: (level: 'C' | 'CR' | 'CRU' | 'CRUD') => boolean
@@ -20,10 +24,11 @@ const PERMISSION_LEVELS = ['C', 'CR', 'CRU', 'CRUD']
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
-      user:         null,
-      clinic:       null,
-      accessToken:  null,
-      refreshToken: null,
+      user:                null,
+      clinic:              null,
+      accessToken:         null,
+      refreshToken:        null,
+      superAdminSnapshot:  null,
 
       setAuth: (user, clinic, access, refresh) => {
         localStorage.setItem('access_token',  access)
@@ -31,13 +36,34 @@ export const useAuthStore = create<AuthState>()(
         set({ user, clinic, accessToken: access, refreshToken: refresh })
       },
 
-      setUser: (user) => set({ user }),
+      setUser:   (user)   => set({ user }),
       setClinic: (clinic) => set({ clinic }),
+
+      impersonate: (user, access, refresh) => {
+        const { user: curUser, clinic: curClinic, accessToken: curAccess, refreshToken: curRefresh } = get()
+        localStorage.setItem('access_token',  access)
+        localStorage.setItem('refresh_token', refresh)
+        set({
+          superAdminSnapshot: { user: curUser!, clinic: curClinic!, accessToken: curAccess!, refreshToken: curRefresh! },
+          user,
+          clinic: user.clinic as unknown as import('@/types').Clinic,
+          accessToken: access,
+          refreshToken: refresh,
+        })
+      },
+
+      exitImpersonation: () => {
+        const snap = get().superAdminSnapshot
+        if (!snap) return
+        localStorage.setItem('access_token',  snap.accessToken)
+        localStorage.setItem('refresh_token', snap.refreshToken)
+        set({ user: snap.user, clinic: snap.clinic, accessToken: snap.accessToken, refreshToken: snap.refreshToken, superAdminSnapshot: null })
+      },
 
       logout: () => {
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
-        set({ user: null, clinic: null, accessToken: null, refreshToken: null })
+        set({ user: null, clinic: null, accessToken: null, refreshToken: null, superAdminSnapshot: null })
       },
 
       canAccess: (module) => {

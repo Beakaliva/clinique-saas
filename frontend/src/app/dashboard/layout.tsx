@@ -4,13 +4,15 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/auth.store'
 import Sidebar from '@/components/layout/Sidebar'
-import { Menu, X } from 'lucide-react'
-import { Building2 } from 'lucide-react'
+import { Menu } from 'lucide-react'
+import { Building2, ShieldAlert, ArrowLeft } from 'lucide-react'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
-  const user   = useAuthStore((s) => s.user)
-  const clinic = useAuthStore((s) => s.clinic)
+  const user              = useAuthStore((s) => s.user)
+  const clinic            = useAuthStore((s) => s.clinic)
+  const superAdminSnapshot = useAuthStore((s) => s.superAdminSnapshot)
+  const exitImpersonation = useAuthStore((s) => s.exitImpersonation)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
@@ -20,7 +22,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!user) return null
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
+    <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
+
+      {/* Bannière impersonation */}
+      {superAdminSnapshot && (
+        <div className="bg-orange-500 text-white text-sm px-4 py-2 flex items-center justify-between shrink-0 z-50">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4" />
+            <span>Mode impersonation — vous consultez <strong>{clinic?.name}</strong> en tant que {user.full_name}</span>
+          </div>
+          <button
+            onClick={() => { exitImpersonation(); router.push('/superadmin') }}
+            className="flex items-center gap-1 bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg transition-colors text-xs font-medium">
+            <ArrowLeft className="h-3.5 w-3.5" /> Quitter
+          </button>
+        </div>
+      )}
+
+    <div className="flex flex-1 min-h-0 overflow-hidden">
 
       {/* Overlay mobile */}
       {sidebarOpen && (
@@ -62,6 +81,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="p-4 md:p-6">{children}</div>
         </main>
       </div>
+    </div>
     </div>
   )
 }

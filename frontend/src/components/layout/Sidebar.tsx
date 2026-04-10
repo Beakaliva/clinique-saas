@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, Calendar, Stethoscope,
   Heart, LogOut, Building2, ChevronRight, FolderOpen,
   Pill, FlaskConical, Radiation, BedDouble,
-  ClipboardList, Receipt, Settings, BarChart3, X,
+  ClipboardList, Receipt, Settings, BarChart3, X, ShieldAlert,
 } from 'lucide-react'
 
 const NAV = [
@@ -35,6 +35,7 @@ export default function Sidebar({ onClose }: Props) {
   const pathname  = usePathname()
   const router    = useRouter()
   const { user, clinic, logout, canAccess } = useAuthStore()
+  const isSuperuser = user?.is_superuser
 
   const handleLogout = () => {
     logout()
@@ -106,6 +107,15 @@ export default function Sidebar({ onClose }: Props) {
             <p className="text-xs text-gray-400 truncate">{user?.group}</p>
           </div>
         </div>
+        {isSuperuser && (
+          <button
+            onClick={() => { onClose?.(); router.push('/superadmin') }}
+            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-purple-600 hover:bg-purple-50 rounded-xl transition-colors mb-1"
+          >
+            <ShieldAlert className="h-4 w-4" />
+            Super Admin
+          </button>
+        )}
         <button
           onClick={handleLogout}
           className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-xl transition-colors"

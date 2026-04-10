@@ -10,6 +10,10 @@ from .views import (
     UserListCreateView,
     UserDetailView,
     ClinicUpdateView,
+    SuperAdminClinicListView,
+    SuperAdminClinicDetailView,
+    SuperAdminClinicUsersView,
+    SuperAdminImpersonateView,
 )
 
 app_name = "users"
@@ -31,4 +35,10 @@ urlpatterns = [
 
     # ── Clinique ──────────────────────────────────────────────────────────
     path("clinic/",               ClinicUpdateView.as_view(),   name="clinic"),
+
+    # ── Super Admin ───────────────────────────────────────────────────────
+    path("superadmin/clinics/",            SuperAdminClinicListView.as_view(),   name="sa-clinic-list"),
+    path("superadmin/clinics/<int:pk>/",   SuperAdminClinicDetailView.as_view(), name="sa-clinic-detail"),
+    path("superadmin/clinics/<int:pk>/users/", SuperAdminClinicUsersView.as_view(), name="sa-clinic-users"),
+    path("superadmin/impersonate/",        SuperAdminImpersonateView.as_view(),  name="sa-impersonate"),
 ]
