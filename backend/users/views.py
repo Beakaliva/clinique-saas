@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db.models import Count
-from django.db.models.functions import TruncMonth, TruncDate
+from django.db.models.functions import ExtractMonth, ExtractYear
 from django.utils import timezone
 import datetime
 
@@ -261,37 +261,36 @@ class StatsView(APIView):
             'ordonnances':    Ordonnance.objects.filter(clinic=clinic).count(),
         }
 
-        year = timezone.now().year
+        year = datetime.datetime.now().year
         MONTH_LABELS = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc']
 
         def monthly_counts(qs, date_field='created_at'):
             rows = (
                 qs.filter(**{f'{date_field}__year': year})
-                  .annotate(mois=TruncMonth(date_field))
+                  .annotate(mois=ExtractMonth(date_field))
                   .values('mois')
                   .annotate(n=Count('id'))
                   .order_by('mois')
             )
-            result = {r['mois'].month: r['n'] for r in rows}
-            current_month = timezone.now().month
+            result = {r['mois']: r['n'] for r in rows}
+            current_month = datetime.datetime.now().month
             return [
                 {'mois': MONTH_LABELS[m - 1], 'valeur': result.get(m, 0)}
                 for m in range(1, current_month + 1)
             ]
 
         def monthly_multi(qs_map, date_field='created_at'):
-            """Retourne [{mois, key1, key2, ...}] pour plusieurs querysets."""
-            current_month = timezone.now().month
+            current_month = datetime.datetime.now().month
             combined = {m: {} for m in range(1, current_month + 1)}
             for key, qs in qs_map.items():
                 rows = (
                     qs.filter(**{f'{date_field}__year': year})
-                      .annotate(mois=TruncMonth(date_field))
+                      .annotate(mois=ExtractMonth(date_field))
                       .values('mois')
                       .annotate(n=Count('id'))
                       .order_by('mois')
                 )
-                counts = {r['mois'].month: r['n'] for r in rows}
+                counts = {r['mois']: r['n'] for r in rows}
                 for m in range(1, current_month + 1):
                     combined[m][key] = counts.get(m, 0)
             return [
@@ -312,27 +311,21 @@ class StatsView(APIView):
         })
 
         # ── Activité 7 derniers jours ────────────────────────────────────────
-        today = timezone.now().date()
+        today = datetime.date.today()
         DAY_LABELS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim']
 
         def weekly_counts(qs, date_field='created_at'):
             start = today - datetime.timedelta(days=6)
-            rows = (
-                qs.filter(**{f'{date_field}__date__gte': start})
-                  .annotate(jour=TruncDate(date_field))
-                  .values('jour')
-                  .annotate(n=Count('id'))
-                  .order_by('jour')
-            )
-            counts = {r['jour']: r['n'] for r in rows}
-            result = []
-            for i in range(7):
-                d = start + datetime.timedelta(days=i)
-                result.append({
-                    'jour': DAY_LABELS[d.weekday()],
-                    'valeur': counts.get(d, 0),
-                })
-            return result
+            counts: dict = {}
+            for obj in qs.filter(**{f'{date_field}__date__gte': start}):
+                val = getattr(obj, date_field)
+                day = val.date() if hasattr(val, 'date') else val
+                counts[day] = counts.get(day, 0) + 1
+            return [
+                {'jour': DAY_LABELS[(start + datetime.timedelta(days=i)).weekday()],
+                 'valeur': counts.get(start + datetime.timedelta(days=i), 0)}
+                for i in range(7)
+            ]
 
         weekly_patients = weekly_counts(Patient.objects.filter(clinic=clinic))
 
