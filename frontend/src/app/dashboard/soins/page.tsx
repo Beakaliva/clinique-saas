@@ -5,14 +5,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { useSearchParams, useRouter } from 'next/navigation'
 import api from '@/lib/api'
-import type { Soin, SoinActe, PaginatedResponse } from '@/types'
+import type { Soin, SoinActe, Facture, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import PatientSelect from '@/components/ui/patient-select'
-import { Plus, Search, Heart, User, ChevronLeft, ChevronRight, Pencil, Trash2, PlusCircle, XCircle, ArrowLeft } from 'lucide-react'
+import { Plus, Search, Heart, User, ChevronLeft, ChevronRight, Pencil, Trash2, PlusCircle, XCircle, ArrowLeft, Receipt } from 'lucide-react'
 
 const STATUTS = [
   { value: 'planifie',  label: 'Planifié',  color: 'bg-blue-50 text-blue-700' },
@@ -38,9 +38,10 @@ interface FormData {
   actes: { acte: string; qte: number; prix: number }[]
 }
 
-function fetchSoins(search: string, page: number, consultationId?: number | null) {
+function fetchSoins(search: string, page: number, consultationId?: number | null, patientId?: number | null) {
   const params: Record<string, unknown> = { search, page }
   if (consultationId) params.consultation = consultationId
+  if (patientId) params.patient = patientId
   return api.get<PaginatedResponse<Soin>>('/soins/', { params }).then(r => r.data)
 }
 
@@ -62,6 +63,8 @@ function SoinsContent() {
   const router = useRouter()
   const consultationParam = searchParams.get('consultation')
   const consultationId = consultationParam ? Number(consultationParam) : null
+  const patientParam = searchParams.get('patient')
+  const patientFilter = patientParam ? Number(patientParam) : null
 
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
@@ -70,8 +73,8 @@ function SoinsContent() {
   const [patientId, setPatientId] = useState<number | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['soins', search, page, consultationId],
-    queryFn: () => fetchSoins(search, page, consultationId),
+    queryKey: ['soins', search, page, consultationId, patientFilter],
+    queryFn: () => fetchSoins(search, page, consultationId, patientFilter),
   })
 
   const { data: consultationInfo } = useQuery({
@@ -111,6 +114,17 @@ function SoinsContent() {
   const remove_soin = useMutation({
     mutationFn: (id: number) => api.delete(`/soins/${id}/`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['soins'] }),
+  })
+
+  const [facturerResult, setFacturerResult] = useState<{ soinId: number; facture: Facture; created: boolean } | null>(null)
+
+  const facturer = useMutation({
+    mutationFn: (soinId: number) =>
+      api.post<{ created: boolean; facture: Facture }>(`/soins/${soinId}/facturer/`).then(r => r.data),
+    onSuccess: (data, soinId) => {
+      qc.invalidateQueries({ queryKey: ['soins'] })
+      setFacturerResult({ soinId, facture: data.facture, created: data.created })
+    },
   })
 
   const openEdit = (s: Soin) => {
@@ -245,7 +259,7 @@ function SoinsContent() {
 
       {/* Table */}
       <Card className="border-0 shadow-sm overflow-hidden">
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {isLoading ? (
             <div className="flex items-center justify-center h-40 text-gray-400">Chargement...</div>
           ) : data?.results.length === 0 ? (
@@ -254,7 +268,7 @@ function SoinsContent() {
               <p>Aucun soin trouvé</p>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full min-w-[600px]">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Patient</th>
@@ -300,6 +314,15 @@ function SoinsContent() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 justify-end">
+                        <Button
+                          size="sm" variant="ghost"
+                          title={s.facture_id ? 'Voir la facture' : 'Générer la facture'}
+                          className={s.facture_id ? 'text-green-600 hover:bg-green-50' : 'text-blue-600 hover:bg-blue-50'}
+                          onClick={() => facturer.mutate(s.id)}
+                          disabled={facturer.isPending && facturer.variables === s.id}
+                        >
+                          <Receipt className="h-3.5 w-3.5" />
+                        </Button>
                         <Button size="sm" variant="ghost" onClick={() => openEdit(s)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -316,6 +339,27 @@ function SoinsContent() {
           )}
         </CardContent>
       </Card>
+
+      {/* Notification facture générée */}
+      {facturerResult && (
+        <div className="fixed bottom-6 right-6 z-50 bg-white border border-gray-200 rounded-xl shadow-lg p-4 flex items-center gap-4 max-w-sm animate-in slide-in-from-bottom-4">
+          <div className={`p-2 rounded-full ${facturerResult.created ? 'bg-green-100' : 'bg-blue-100'}`}>
+            <Receipt className={`h-5 w-5 ${facturerResult.created ? 'text-green-600' : 'text-blue-600'}`} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-800">
+              {facturerResult.created ? 'Facture créée' : 'Facture existante'}
+            </p>
+            <p className="text-xs text-gray-500">{facturerResult.facture.numero} — {Number(facturerResult.facture.montant_total).toLocaleString('fr-FR')} GNF</p>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => router.push(`/dashboard/factures?open=${facturerResult.facture.id}`)}>
+              Voir
+            </Button>
+            <button onClick={() => setFacturerResult(null)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+          </div>
+        </div>
+      )}
 
       {/* Pagination */}
       {totalPages > 1 && (

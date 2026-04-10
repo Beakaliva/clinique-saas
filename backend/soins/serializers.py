@@ -18,6 +18,7 @@ class SoinSerializer(serializers.ModelSerializer):
     consultation_ref = serializers.SerializerMethodField(read_only=True)
     actes            = SoinActeSerializer(many=True, read_only=True)
     montant_total    = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    facture_id       = serializers.IntegerField(source='facture.id', read_only=True, default=None)
 
     def get_consultation_ref(self, obj):
         if obj.consultation_id:
@@ -30,7 +31,7 @@ class SoinSerializer(serializers.ModelSerializer):
             'id', 'patient', 'patient_nom', 'consultation', 'consultation_ref',
             'infirmier', 'infirmier_nom',
             'type_soin', 'date', 'description', 'notes', 'statut', 'statut_label',
-            'actes', 'montant_total',
+            'actes', 'montant_total', 'facture_id',
             'created_at', 'updated_at',
         )
         read_only_fields = ('created_at', 'updated_at')

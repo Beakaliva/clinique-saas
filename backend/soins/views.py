@@ -1,6 +1,9 @@
-from rest_framework import generics
-from rest_framework import filters
+from datetime import date
+
+from rest_framework import generics, filters
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.response import Response
+from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 
 from config.mixins import ClinicScopedMixin
@@ -48,3 +51,63 @@ class SoinActeDetailView(generics.RetrieveUpdateDestroyAPIView):
         if soin.clinic != self.request.user.clinic:
             raise PermissionDenied
         return SoinActe.objects.filter(soin=soin)
+
+
+class FacturerSoinView(APIView):
+    """Génère (ou retourne) la facture liée à un soin."""
+
+    def post(self, request, pk):
+        from factures.models import Facture, LigneFacture
+        from factures.serializers import FactureSerializer
+        from factures.views import FactureListCreateView
+
+        soin = generics.get_object_or_404(Soin, pk=pk, clinic=request.user.clinic)
+
+        # Facture déjà existante → on la retourne
+        if hasattr(soin, 'facture') and soin.facture is not None:
+            serializer = FactureSerializer(soin.facture)
+            return Response({'created': False, 'facture': serializer.data})
+
+        # Calcul assurance
+        patient = soin.patient
+        montant = float(soin.montant_total)
+        extra = {}
+        if patient.est_assure:
+            taux = float(patient.pourcentage or 0)
+            part_ass = round(montant * taux / 100, 2)
+            extra = {
+                'est_assure': True, 'taux_assurance': taux,
+                'assurance_nom': patient.assurance or '',
+                'assurance_code': patient.code_assurance or '',
+                'part_assurance': part_ass,
+                'part_patient': round(montant - part_ass, 2),
+            }
+        else:
+            extra = {'est_assure': False, 'taux_assurance': 0,
+                     'part_assurance': 0, 'part_patient': montant}
+
+        # Génération du numéro
+        numero = FactureListCreateView._generate_numero(request.user.clinic)
+
+        facture = Facture.objects.create(
+            clinic=request.user.clinic,
+            patient=patient,
+            soin=soin,
+            numero=numero,
+            date=soin.date.date() if hasattr(soin.date, 'date') else date.today(),
+            statut=Facture.Statut.EMISE,
+            montant_total=montant,
+            **extra,
+        )
+
+        # Créer les lignes depuis les actes du soin
+        for acte in soin.actes.all():
+            LigneFacture.objects.create(
+                facture=facture,
+                description=acte.acte,
+                quantite=acte.qte,
+                prix_unitaire=acte.prix,
+            )
+
+        serializer = FactureSerializer(facture)
+        return Response({'created': True, 'facture': serializer.data}, status=201)

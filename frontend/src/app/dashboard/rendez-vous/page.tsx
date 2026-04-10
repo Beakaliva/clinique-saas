@@ -143,7 +143,7 @@ export default function RendezVousPage() {
 
       {/* Table */}
       <Card className="border-0 shadow-sm overflow-hidden">
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {isLoading ? (
             <div className="flex items-center justify-center h-40 text-gray-400">Chargement...</div>
           ) : data?.results.length === 0 ? (
@@ -152,7 +152,7 @@ export default function RendezVousPage() {
               <p>Aucun rendez-vous trouvé</p>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full min-w-[600px]">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Patient</th>

@@ -12,6 +12,8 @@ export interface Clinic {
   logo: string | null
   is_active: boolean
   created_at: string
+  available_groups: [string, string][]
+  available_modules: [string, string][]
 }
 
 export const CLINIC_TYPES = [
@@ -117,6 +119,7 @@ export interface Soin {
   id: number
   patient: number
   patient_nom: string
+  facture_id: number | null
   consultation: number | null
   consultation_ref: { id: number; motif: string } | null
   infirmier: number | null
@@ -197,6 +200,133 @@ export interface DossierMedical {
   traitements_en_cours: string
   notes: string
   liste_antecedents: Antecedent[]
+  created_at: string
+  updated_at: string
+}
+
+// ── Facture ───────────────────────────────────────────────────────────────
+
+export interface LigneFacture {
+  id: number
+  description: string
+  quantite: number
+  prix_unitaire: string
+  montant: string
+}
+
+export interface Paiement {
+  id: number
+  payeur: 'patient' | 'assurance'
+  payeur_label: string
+  mode: string
+  mode_label: string
+  montant: string
+  date: string
+  notes: string
+}
+
+export interface Facture {
+  id: number
+  soin: number | null
+  patient: number
+  patient_nom: string
+  patient_est_assure: boolean
+  patient_assurance: string | null
+  patient_code_assurance: string | null
+  patient_pourcentage: string | null
+  numero: string
+  date: string
+  statut: string
+  statut_label: string
+  mode_paiement: string
+  mode_paiement_label: string
+  montant_total: string
+  montant_paye: string
+  montant_restant: string
+  // Assurance
+  est_assure: boolean
+  taux_assurance: string
+  assurance_nom: string
+  assurance_code: string
+  part_patient: string
+  part_assurance: string
+  montant_paye_patient: string
+  montant_paye_assurance: string
+  montant_restant_patient: string
+  montant_restant_assurance: string
+  notes: string
+  lignes: LigneFacture[]
+  paiements: Paiement[]
+  created_at: string
+  updated_at: string
+}
+
+// ── Pharmacie ─────────────────────────────────────────────────────────────
+
+export interface Medicament {
+  id: number
+  nom: string
+  forme: string
+  forme_display: string
+  dosage: string
+  unite: string
+  stock_actuel: number
+  stock_min: number
+  prix_unitaire: string
+  en_rupture: boolean
+  created_at: string
+  updated_at: string
+}
+
+// ── Laboratoire ───────────────────────────────────────────────────────────
+
+export interface ExamenLabo {
+  id: number
+  patient: number
+  patient_nom: string
+  type_examen: string
+  date_demande: string
+  date_resultat: string | null
+  resultat: string
+  valeurs_normales: string
+  statut: string
+  statut_label: string
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+// ── Radiologie ────────────────────────────────────────────────────────────
+
+export interface ExamenRadio {
+  id: number
+  patient: number
+  patient_nom: string
+  type_examen: string
+  date: string
+  compte_rendu: string
+  statut: string
+  statut_label: string
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+// ── Hospitalisation ───────────────────────────────────────────────────────
+
+export interface Hospitalisation {
+  id: number
+  patient: number
+  patient_nom: string
+  chambre: string
+  motif: string
+  date_entree: string
+  date_sortie_prevue: string | null
+  date_sortie_reelle: string | null
+  statut: string
+  statut_label: string
+  notes: string
+  duree_jours: number
   created_at: string
   updated_at: string
 }

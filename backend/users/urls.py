@@ -9,6 +9,7 @@ from .views import (
     ChangePasswordView,
     UserListCreateView,
     UserDetailView,
+    ClinicUpdateView,
 )
 
 app_name = "users"
@@ -27,4 +28,7 @@ urlpatterns = [
     # ── Utilisateurs (scoped à la clinique) ───────────────────────────────
     path("users/",                UserListCreateView.as_view(), name="user-list"),
     path("users/<int:pk>/",       UserDetailView.as_view(),     name="user-detail"),
+
+    # ── Clinique ──────────────────────────────────────────────────────────
+    path("clinic/",               ClinicUpdateView.as_view(),   name="clinic"),
 ]

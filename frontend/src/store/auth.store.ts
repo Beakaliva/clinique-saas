@@ -8,6 +8,8 @@ interface AuthState {
   accessToken: string | null
   refreshToken: string | null
   setAuth: (user: User, clinic: Clinic, access: string, refresh: string) => void
+  setUser: (user: User) => void
+  setClinic: (clinic: Clinic) => void
   logout: () => void
   canAccess: (module: string) => boolean
   hasPermission: (level: 'C' | 'CR' | 'CRU' | 'CRUD') => boolean
@@ -28,6 +30,9 @@ export const useAuthStore = create<AuthState>()(
         localStorage.setItem('refresh_token', refresh)
         set({ user, clinic, accessToken: access, refreshToken: refresh })
       },
+
+      setUser: (user) => set({ user }),
+      setClinic: (clinic) => set({ clinic }),
 
       logout: () => {
         localStorage.removeItem('access_token')

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm, useFieldArray } from 'react-hook-form'
 import api from '@/lib/api'
@@ -11,11 +11,11 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import PatientSelect from '@/components/ui/patient-select'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Plus, Search, Stethoscope, User, ChevronLeft, ChevronRight,
   Pencil, Trash2, Heart, ArrowLeft, CheckCircle2, Clock, XCircle, HeartPulse,
-  PlusCircle, XCircle as XCircleIcon, ExternalLink,
+  PlusCircle, XCircle as XCircleIcon, ExternalLink, Receipt,
 } from 'lucide-react'
 
 // ── Statuts ──────────────────────────────────────────────────────────────
@@ -44,8 +44,10 @@ function statutLabel(val: string, list: typeof STATUTS_CONSULT) {
 
 // ── Fetchers ──────────────────────────────────────────────────────────────
 
-function fetchConsultations(search: string, page: number) {
-  return api.get<PaginatedResponse<Consultation>>('/consultations/', { params: { search, page } }).then(r => r.data)
+function fetchConsultations(search: string, page: number, patientId: number | null) {
+  return api.get<PaginatedResponse<Consultation>>('/consultations/', {
+    params: { search, page, ...(patientId ? { patient: patientId } : {}) }
+  }).then(r => r.data)
 }
 
 function fetchSoinsByConsultation(consultationId: number) {
@@ -79,6 +81,16 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
   const router = useRouter()
   const [openSoin, setOpenSoin] = useState(autoOpen)
   const [editingSoin, setEditingSoin] = useState<Soin | null>(null)
+  const [facturerResult, setFacturerResult] = useState<{ facture: import('@/types').Facture; created: boolean } | null>(null)
+
+  const facturer = useMutation({
+    mutationFn: (soinId: number) =>
+      api.post<{ created: boolean; facture: import('@/types').Facture }>(`/soins/${soinId}/facturer/`).then(r => r.data),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['soins-consult', consultation.id] })
+      setFacturerResult(data)
+    },
+  })
 
   const { data: soins = [], isLoading } = useQuery({
     queryKey: ['soins-consult', consultation.id],
@@ -271,7 +283,7 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
               <p className="text-sm">Aucun soin pour cette consultation</p>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full min-w-[600px]">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Type de soin</th>
@@ -306,6 +318,15 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 justify-end">
+                        <Button
+                          size="sm" variant="ghost"
+                          title={s.facture_id ? 'Voir la facture' : 'Générer la facture'}
+                          className={s.facture_id ? 'text-green-600 hover:bg-green-50' : 'text-blue-600 hover:bg-blue-50'}
+                          onClick={() => facturer.mutate(s.id)}
+                          disabled={facturer.isPending}
+                        >
+                          <Receipt className="h-3.5 w-3.5" />
+                        </Button>
                         <Button size="sm" variant="ghost" onClick={() => openEdit(s)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -322,25 +343,49 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
           )}
         </CardContent>
       </Card>
+
+      {/* Notification facture */}
+      {facturerResult && (
+        <div className="fixed bottom-6 right-6 z-50 bg-white border border-gray-200 rounded-xl shadow-lg p-4 flex items-center gap-4 max-w-sm">
+          <div className={`p-2 rounded-full ${facturerResult.created ? 'bg-green-100' : 'bg-blue-100'}`}>
+            <Receipt className={`h-5 w-5 ${facturerResult.created ? 'text-green-600' : 'text-blue-600'}`} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-800">
+              {facturerResult.created ? 'Facture créée' : 'Facture existante'}
+            </p>
+            <p className="text-xs text-gray-500">{facturerResult.facture.numero} — {Number(facturerResult.facture.montant_total).toLocaleString('fr-FR')} GNF</p>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => router.push(`/dashboard/factures?open=${facturerResult.facture.id}`)}>Voir</Button>
+            <button onClick={() => setFacturerResult(null)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 // ── Page principale consultations ─────────────────────────────────────────
 
-export default function ConsultationsPage() {
+function ConsultationsContent() {
   const qc = useQueryClient()
+  const searchParams = useSearchParams()
+  const patientParam = searchParams.get('patient')
+  const patientFilter = patientParam ? Number(patientParam) : null
+
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Consultation | null>(null)
   const [viewSoins, setViewSoins] = useState<Consultation | null>(null)
   const [autoOpenSoin, setAutoOpenSoin] = useState(false)
+  const [addSoinAfter, setAddSoinAfter] = useState(false)
   const [patientId, setPatientId] = useState<number | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['consultations', search, page],
-    queryFn: () => fetchConsultations(search, page),
+    queryKey: ['consultations', search, page, patientFilter],
+    queryFn: () => fetchConsultations(search, page, patientFilter),
   })
 
   const { register, handleSubmit, reset, setValue } = useForm<Partial<Consultation>>()
@@ -348,11 +393,16 @@ export default function ConsultationsPage() {
   const save = useMutation({
     mutationFn: (d: Partial<Consultation>) =>
       editing
-        ? api.patch(`/consultations/${editing.id}/`, d).then(r => r.data)
-        : api.post('/consultations/', { ...d, patient: patientId! }).then(r => r.data),
-    onSuccess: () => {
+        ? api.patch<Consultation>(`/consultations/${editing.id}/`, d).then(r => r.data)
+        : api.post<Consultation>('/consultations/', { ...d, patient: patientId! }).then(r => r.data),
+    onSuccess: (saved) => {
       qc.invalidateQueries({ queryKey: ['consultations'] })
       setOpen(false); reset(); setEditing(null); setPatientId(null)
+      if (addSoinAfter) {
+        setAutoOpenSoin(true)
+        setViewSoins(saved)
+        setAddSoinAfter(false)
+      }
     },
   })
 
@@ -397,7 +447,7 @@ export default function ConsultationsPage() {
           <h1 className="text-2xl font-bold text-gray-800">Consultations</h1>
           <p className="text-gray-500 text-sm">{data?.count ?? 0} consultation(s) enregistrée(s)</p>
         </div>
-        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setPatientId(null); reset(); setEditing(null) } }}>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setPatientId(null); reset(); setEditing(null); setAddSoinAfter(false) } }}>
           <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Nouvelle consultation</Button>} />
           <DialogContent className="max-w-lg">
             <DialogHeader>
@@ -434,17 +484,29 @@ export default function ConsultationsPage() {
                 <Label>Notes</Label>
                 <textarea {...register('notes')} rows={2} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none" placeholder="Notes cliniques..." />
               </div>
+              {/* Option soin lié */}
+              {!editing && (
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={addSoinAfter}
+                    onChange={e => setAddSoinAfter(e.target.checked)}
+                    className="rounded"
+                  />
+                  <span className="text-sm text-gray-600 flex items-center gap-1">
+                    <HeartPulse className="h-4 w-4 text-rose-500" />
+                    Créer un soin lié à cette consultation
+                  </span>
+                </label>
+              )}
+
               <div className={`flex gap-3 ${editing ? 'justify-between' : 'justify-end'}`}>
                 {editing && (
                   <Button
                     type="button"
                     variant="outline"
                     className="flex items-center gap-2 text-rose-600 border-rose-200 hover:bg-rose-50"
-                    onClick={() => {
-                      setOpen(false)
-                      setAutoOpenSoin(true)
-                      setViewSoins(editing)
-                    }}
+                    onClick={() => { setOpen(false); setAutoOpenSoin(true); setViewSoins(editing) }}
                   >
                     <HeartPulse className="h-4 w-4" />
                     Créer un soin
@@ -475,7 +537,7 @@ export default function ConsultationsPage() {
 
       {/* Table */}
       <Card className="border-0 shadow-sm overflow-hidden">
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {isLoading ? (
             <div className="flex items-center justify-center h-40 text-gray-400">Chargement...</div>
           ) : data?.results.length === 0 ? (
@@ -484,7 +546,7 @@ export default function ConsultationsPage() {
               <p>Aucune consultation trouvée</p>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full min-w-[600px]">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Patient</th>
@@ -557,4 +619,8 @@ export default function ConsultationsPage() {
       )}
     </div>
   )
+}
+
+export default function ConsultationsPage() {
+  return <Suspense fallback={<div className="flex items-center justify-center h-40 text-gray-400">Chargement...</div>}><ConsultationsContent /></Suspense>
 }

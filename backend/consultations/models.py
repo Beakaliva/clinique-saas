@@ -5,9 +5,10 @@ from django.utils.translation import gettext_lazy as _
 class Consultation(models.Model):
 
     class Statut(models.TextChoices):
-        EN_COURS = 'en_cours', _('En cours')
-        TERMINEE = 'terminee', _('Terminée')
-        ANNULEE  = 'annulee',  _('Annulée')
+        EN_ATTENTE = 'en_attente', _('En attente')
+        EN_COURS   = 'en_cours',   _('En cours')
+        TERMINEE   = 'terminee',   _('Terminée')
+        ANNULEE    = 'annulee',    _('Annulée')
 
     clinic  = models.ForeignKey('users.Clinic',    on_delete=models.CASCADE,  related_name='consultations', verbose_name=_('Clinique'))
     patient = models.ForeignKey('patients.Patient', on_delete=models.CASCADE,  related_name='consultations', verbose_name=_('Patient'))

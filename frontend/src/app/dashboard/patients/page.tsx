@@ -28,7 +28,7 @@ export default function PatientsPage() {
     queryFn:  () => fetchPatients(search, page),
   })
 
-  const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<Partial<Patient>>()
+  const { register, handleSubmit, reset, setValue, watch } = useForm<Partial<Patient>>()
 
   const save = useMutation({
     mutationFn: (d: Partial<Patient>) =>
@@ -110,6 +110,26 @@ export default function PatientsPage() {
                 <input type="checkbox" id="est_assure" {...register('est_assure')} className="rounded" />
                 <Label htmlFor="est_assure">Patient assuré</Label>
               </div>
+              {watch('est_assure') && (
+                <div className="border border-blue-100 rounded-lg p-3 space-y-3 bg-blue-50/40">
+                  <p className="text-xs font-semibold text-blue-700 uppercase">Informations assurance</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Compagnie d'assurance</Label>
+                      <Input {...register('assurance')} placeholder="SONACOS, SAAR..." />
+                    </div>
+                    <div>
+                      <Label>N° Police / Code</Label>
+                      <Input {...register('code_assurance')} placeholder="ASS-2024-001" />
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Taux de prise en charge (%)</Label>
+                    <Input type="number" min={0} max={100} step={0.01} {...register('pourcentage', { valueAsNumber: true })} placeholder="80" />
+                    <p className="text-xs text-gray-400 mt-1">Ex : 80 = l'assurance paie 80%, le patient paie 20%</p>
+                  </div>
+                </div>
+              )}
               <div className="flex gap-3 justify-end">
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
                 <Button type="submit" disabled={save.isPending}>
@@ -134,7 +154,7 @@ export default function PatientsPage() {
 
       {/* Table */}
       <Card className="border-0 shadow-sm overflow-hidden">
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {isLoading ? (
             <div className="flex items-center justify-center h-40 text-gray-400">Chargement...</div>
           ) : data?.results.length === 0 ? (
@@ -143,7 +163,7 @@ export default function PatientsPage() {
               <p>Aucun patient trouvé</p>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full min-w-[600px]">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">Patient</th>

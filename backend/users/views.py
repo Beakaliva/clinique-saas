@@ -140,3 +140,12 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
         if self.request.method in ("PUT", "PATCH"):
             return UserUpdateSerializer
         return UserSerializer
+
+
+class ClinicUpdateView(generics.RetrieveUpdateAPIView):
+    """GET/PATCH /api/clinic/  — met à jour les infos de la clinique du user connecté."""
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class = ClinicSerializer
+
+    def get_object(self):
+        return self.request.user.clinic
