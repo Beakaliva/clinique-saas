@@ -91,7 +91,14 @@ export default function ParametresPage() {
 
   const updateUser = useMutation({
     mutationFn: ({ id, data }: { id: number; data: UserEditForm }) => api.patch<User>(`/users/${id}/`, data).then(r => r.data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); setEditingUser(null) },
+    onSuccess: (updated) => {
+      qc.invalidateQueries({ queryKey: ['users'] })
+      setEditingUser(null)
+      // Si l'admin modifie son propre profil, mettre à jour le store
+      if (updated.id === me?.id) {
+        api.get('/auth/me/').then(r => setUser(r.data))
+      }
+    },
   })
 
   const toggleActive = useMutation({
@@ -250,6 +257,11 @@ export default function ParametresPage() {
               <label htmlFor="chk_active" className="text-sm text-gray-700">Compte actif</label>
             </div>
             {updateUser.isError && <p className="text-xs text-red-500">Erreur lors de la mise à jour.</p>}
+            {editingUser?.id !== me?.id && (
+              <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+                L'utilisateur devra se <strong>reconnecter</strong> pour voir les nouveaux droits et modules.
+              </p>
+            )}
             <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">
               <Button type="button" variant="outline" onClick={() => setEditingUser(null)}>Annuler</Button>
               <Button type="submit" disabled={updateUser.isPending}>{updateUser.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
