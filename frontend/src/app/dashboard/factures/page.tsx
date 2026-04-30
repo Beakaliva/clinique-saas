@@ -2,18 +2,35 @@
 
 import React, { useState, Suspense, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useForm, useFieldArray } from 'react-hook-form'
+import { useForm, useFieldArray, Controller } from 'react-hook-form'
+import { useClinicAccess } from '@/hooks/use-clinic-access'
 import api from '@/lib/api'
+import { useAuthStore } from '@/store/auth.store'
+import { FilterBar, type FilterState } from '@/components/ui/filter-bar'
 import type { Facture, PaginatedResponse } from '@/types'
+
+const INIT_FILTERS: FilterState = { dateDebut: '', dateFin: '', mois: '', annee: '', statut: '' }
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DateInput } from '@/components/ui/date-input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import PatientSelect from '@/components/ui/patient-select'
+import { Pagination } from '@/components/ui/pagination'
 import {
-  Plus, Search, Receipt, User, ChevronLeft, ChevronRight,
+  Plus, Search, Receipt, User,
   Pencil, Trash2, PlusCircle, XCircle, Shield, CreditCard, ChevronDown, ChevronUp,
+  CheckCircle2, Clock, Ban, Printer,
 } from 'lucide-react'
+import { printFacture } from '@/lib/print'
+import { StatCards, type StatDef } from '@/components/ui/stat-cards'
+
+const FACTURES_STATS: StatDef[] = [
+  { label: 'Total factures', endpoint: '/factures/', icon: Receipt,      color: 'bg-blue-50 text-blue-600' },
+  { label: 'Payées',         endpoint: '/factures/', params: { statut: 'payee' },     icon: CheckCircle2, color: 'bg-green-50 text-green-600' },
+  { label: 'Émises',         endpoint: '/factures/', params: { statut: 'emise' },     icon: Clock,        color: 'bg-yellow-50 text-yellow-600' },
+  { label: 'Annulées',       endpoint: '/factures/', params: { statut: 'annulee' },   icon: Ban,          color: 'bg-red-50 text-red-600' },
+]
 
 const STATUTS = [
   { value: 'brouillon', label: 'Brouillon',           color: 'bg-gray-100 text-gray-600' },
@@ -245,6 +262,7 @@ function PaiementsPanel({ factureId, onClose }: { factureId: number; onClose: ()
 // ── Formulaire facture ────────────────────────────────────────────────────
 function FactureForm({ editing, onClose }: { editing: Facture | null; onClose: () => void }) {
   const qc = useQueryClient()
+  const { hasAccess } = useClinicAccess()
   const [patientId, setPatientId] = useState<number | null>(editing?.patient ?? null)
 
   const handlePatientChange = (id: number | null, patient?: import('@/types').Patient) => {
@@ -320,7 +338,7 @@ function FactureForm({ editing, onClose }: { editing: Facture | null; onClose: (
         <form onSubmit={handleSubmit(d => save.mutate(d))} className="p-5 space-y-4">
           <div><Label>Patient *</Label><PatientSelect value={patientId} onChange={handlePatientChange} required /></div>
           <div className="grid grid-cols-2 gap-3">
-            <div><Label>Date *</Label><Input type="date" {...register('date', { required: true })} /></div>
+            <div><Label>Date *</Label><Controller control={control} name="date" rules={{ required: true }} render={({ field }) => <DateInput name={field.name} value={field.value ?? ''} onChange={(e) => field.onChange(e.target.value)} onBlur={field.onBlur} />} /></div>
             <div><Label>Statut</Label>
               <select {...register('statut')} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm">
                 {STATUTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -391,7 +409,7 @@ function FactureForm({ editing, onClose }: { editing: Facture | null; onClose: (
           <div><Label>Notes</Label><textarea {...register('notes')} rows={2} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none" /></div>
           <div className="flex gap-3 justify-end pt-2">
             <Button type="button" variant="outline" onClick={onClose}>Annuler</Button>
-            <Button type="submit" disabled={save.isPending || !patientId}>{save.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
+            <Button type="submit" disabled={!hasAccess || save.isPending || !patientId}>{save.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
           </div>
         </form>
       </div>
@@ -402,27 +420,39 @@ function FactureForm({ editing, onClose }: { editing: Facture | null; onClose: (
 // ── Page principale ───────────────────────────────────────────────────────
 function FacturesContent() {
   const qc = useQueryClient()
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
+  const { hasAccess } = useClinicAccess()
+  const clinic = useAuthStore((s) => s.clinic)
+    const [search,  setSearch]  = useState('')
+  const [page,    setPage]    = useState(1)
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<Facture | null>(null)
   const [paiementsFacture, setPaiementsFacture] = useState<number | null>(null)
   const [expanded, setExpanded] = useState<number | null>(null)
+  const [filters, setFilters] = useState<FilterState>(INIT_FILTERS)
 
-  // Ouvre automatiquement le panel si ?open=<id> dans l'URL
+  const setFilter    = (k: string, v: string) => { setFilters(f => ({ ...f, [k]: v })); setPage(1) }
+  const resetFilters = () => { setFilters(INIT_FILTERS); setPage(1) }
+
+  // Ouvre automatiquement le panel si ?open=<id> ou le formulaire si ?new=1
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const openId = params.get('open')
-    if (openId) {
-      setPaiementsFacture(Number(openId))
-      // Nettoyer l'URL sans recharger la page
-      window.history.replaceState(null, '', window.location.pathname)
-    }
+    const isNew  = params.get('new') === '1'
+    if (openId) setPaiementsFacture(Number(openId))
+    if (isNew)  { setEditing(null); setFormOpen(true) }
+    if (openId || isNew) window.history.replaceState(null, '', window.location.pathname)
   }, [])
 
   const { data, isLoading } = useQuery({
-    queryKey: ['factures', search, page],
-    queryFn: () => api.get<PaginatedResponse<Facture>>('/factures/', { params: { search, page } }).then(r => r.data),
+    queryKey: ['factures', search, page, filters],
+    queryFn: () => api.get<PaginatedResponse<Facture>>('/factures/', { params: {
+      search, page,
+      ...(filters.dateDebut ? { date_debut: filters.dateDebut } : {}),
+      ...(filters.dateFin   ? { date_fin:   filters.dateFin }   : {}),
+      ...(filters.mois      ? { mois:       filters.mois }      : {}),
+      ...(filters.annee     ? { annee:      filters.annee }      : {}),
+      ...(filters.statut    ? { statut:     filters.statut }     : {}),
+    }}).then(r => r.data),
   })
 
   const del = useMutation({
@@ -434,6 +464,7 @@ function FacturesContent() {
 
   return (
     <div className="space-y-5">
+      <StatCards stats={FACTURES_STATS} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Facturation</h1>
@@ -444,9 +475,19 @@ function FacturesContent() {
         </Button>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-        <Input placeholder="Rechercher par patient, numéro..." className="pl-10" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
+      <div className="space-y-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input placeholder="Rechercher par patient, numéro..." className="pl-10" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
+        </div>
+        <FilterBar
+          filters={filters}
+          onChange={setFilter}
+          onReset={resetFilters}
+          extras={[
+            { key: 'statut', label: 'Statut', options: STATUTS.map(s => ({ value: s.value, label: s.label })) },
+          ]}
+        />
       </div>
 
       <Card className="border-0 shadow-sm overflow-hidden">
@@ -486,6 +527,10 @@ function FacturesContent() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1">
+                            <Button size="sm" variant="ghost" title="Imprimer" className="text-blue-500 hover:bg-blue-50"
+                              onClick={() => printFacture(f, { name: clinic?.name ?? '', telephone: clinic?.telephone, adresse: clinic?.adresse, email: clinic?.email, type_display: clinic?.type_display, logo: clinic?.logo })}>
+                              <Printer className="h-3.5 w-3.5" />
+                            </Button>
                             <Button size="sm" variant="ghost" title="Paiements" onClick={() => setPaiementsFacture(f.id)} className="text-green-600 hover:bg-green-50">
                               <CreditCard className="h-3.5 w-3.5" />
                             </Button>
@@ -530,15 +575,12 @@ function FacturesContent() {
         </CardContent>
       </Card>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-500">Page {page} / {totalPages}</p>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(p => p - 1)}><ChevronLeft className="h-4 w-4" /></Button>
-            <Button size="sm" variant="outline" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}><ChevronRight className="h-4 w-4" /></Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        count={data?.count}
+        onPageChange={setPage}
+      />
 
       {formOpen && <FactureForm editing={editing} onClose={() => { setFormOpen(false); setEditing(null) }} />}
       {paiementsFacture && <PaiementsPanel factureId={paiementsFacture} onClose={() => setPaiementsFacture(null)} />}

@@ -6,17 +6,20 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from config.mixins import ClinicScopedMixin
+from config.mixins import ClinicScopedMixin, DateFilterMixin
 from .models import Facture, LigneFacture, Paiement
 from .serializers import FactureSerializer, LigneFactureSerializer, PaiementSerializer
 
 
-class FactureListCreateView(ClinicScopedMixin, generics.ListCreateAPIView):
-    queryset         = Facture.objects.select_related('patient', 'caissier').prefetch_related('lignes', 'paiements')
-    serializer_class = FactureSerializer
-    search_fields    = ['patient__last_name', 'patient__first_name', 'numero']
-    ordering_fields  = ['date', 'statut', 'montant_total']
-    ordering         = ['-date']
+class FactureListCreateView(DateFilterMixin, ClinicScopedMixin, generics.ListCreateAPIView):
+    queryset                  = Facture.objects.select_related('patient', 'caissier').prefetch_related('lignes', 'paiements')
+    serializer_class          = FactureSerializer
+    search_fields             = ['patient__last_name', 'patient__first_name', 'numero']
+    filterset_fields          = ['statut']
+    ordering_fields           = ['date', 'statut', 'montant_total']
+    ordering                  = ['-date']
+    date_filter_field         = 'date'
+    date_filter_is_date_field = True
 
     @staticmethod
     def _generate_numero(clinic):

@@ -1,3 +1,5 @@
+import datetime
+
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser
 from django.utils.text import slugify
@@ -38,6 +40,11 @@ class Clinic(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Créée le"))
     updated_at = models.DateTimeField(auto_now=True,     verbose_name=_("Mise à jour le"))
 
+    # ── Trial SaaS ────────────────────────────────────────────────────────
+    trial_ends_at   = models.DateField(null=True, blank=True, verbose_name=_("Fin d'essai"))
+    is_subscribed   = models.BooleanField(default=False, verbose_name=_("Abonnement actif"))
+    subscribed_plan = models.CharField(max_length=20, blank=True, default='', verbose_name=_("Plan souscrit"))
+
     class Meta:
         verbose_name        = _("Clinique")
         verbose_name_plural = _("Cliniques")
@@ -56,6 +63,30 @@ class Clinic(models.Model):
                 n   += 1
             self.slug = slug
         super().save(*args, **kwargs)
+
+    # ── Helpers trial ────────────────────────────────────────────────────
+
+    @property
+    def trial_active(self) -> bool:
+        """True si l'essai est encore en cours."""
+        if self.is_subscribed:
+            return False
+        if not self.trial_ends_at:
+            return False
+        return datetime.date.today() <= self.trial_ends_at
+
+    @property
+    def trial_days_left(self) -> int:
+        """Nombre de jours restants dans l'essai (0 si expiré ou abonné)."""
+        if self.is_subscribed or not self.trial_ends_at:
+            return 0
+        delta = (self.trial_ends_at - datetime.date.today()).days
+        return max(0, delta)
+
+    @property
+    def has_access(self) -> bool:
+        """True si la clinique peut utiliser l'application."""
+        return self.is_active and (self.is_subscribed or self.trial_active)
 
     # ── Helpers config ────────────────────────────────────────────────────
 

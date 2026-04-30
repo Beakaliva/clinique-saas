@@ -7,6 +7,44 @@ UPDATE_METHODS = ('PUT', 'PATCH')
 DELETE_METHODS = ('DELETE',)
 
 
+class DateFilterMixin:
+    """
+    Filtre les querysets par intervalle de dates, mois ou année.
+    Paramètres acceptés : date_debut, date_fin, mois, annee.
+    Configurer : date_filter_field (nom du champ)
+                 date_filter_is_date_field = True si le champ est un DateField (pas DateTimeField)
+    """
+    date_filter_field        = 'created_at'
+    date_filter_is_date_field = False  # False = DateTimeField → utilise __date__gte
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        p  = self.request.query_params
+        f  = self.date_filter_field
+        is_date = self.date_filter_is_date_field
+
+        date_debut = p.get('date_debut')
+        date_fin   = p.get('date_fin')
+        mois       = p.get('mois')
+        annee      = p.get('annee')
+
+        if date_debut:
+            qs = qs.filter(**{f'{f}__gte' if is_date else f'{f}__date__gte': date_debut})
+        if date_fin:
+            qs = qs.filter(**{f'{f}__lte' if is_date else f'{f}__date__lte': date_fin})
+        if annee:
+            try:
+                qs = qs.filter(**{f'{f}__year': int(annee)})
+            except (ValueError, TypeError):
+                pass
+        if mois:
+            try:
+                qs = qs.filter(**{f'{f}__month': int(mois)})
+            except (ValueError, TypeError):
+                pass
+        return qs
+
+
 class ClinicScopedMixin:
     """
     Restreint automatiquement les querysets à la clinique de l'utilisateur connecté

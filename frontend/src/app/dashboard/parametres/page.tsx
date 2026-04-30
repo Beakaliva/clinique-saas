@@ -7,6 +7,7 @@ import api from '@/lib/api'
 import { useAuthStore } from '@/store/auth.store'
 import type { User } from '@/types'
 import { Button } from '@/components/ui/button'
+import { mediaUrl } from '@/lib/media'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -17,7 +18,7 @@ import {
   Eye, EyeOff,
 } from 'lucide-react'
 
-interface ClinicForm   { name: string; telephone: string; adresse: string; email: string }
+interface ClinicForm   { name: string; telephone: string; adresse: string; email: string; logo?: FileList }
 interface AccountForm  { first_name: string; last_name: string; email: string; telephone: string }
 interface PasswordForm { old_password: string; new_password: string; new_password2: string }
 interface UserCreateForm {
@@ -25,6 +26,7 @@ interface UserCreateForm {
   group: string; permission: string; modules: string[]; password: string; password2: string
 }
 interface UserEditForm { first_name: string; last_name: string; group: string; permission: string; modules: string[]; is_active: boolean }
+interface ResetPwForm  { new_password: string; new_password2: string }
 
 const PERMISSIONS = [
   { value: 'CRUD', color: 'bg-green-50 text-green-700' },
@@ -44,6 +46,7 @@ export default function ParametresPage() {
   const [openAccount,  setOpenAccount]  = useState(false)
   const [openCreate,   setOpenCreate]   = useState(false)
   const [editingUser,  setEditingUser]  = useState<User | null>(null)
+  const [resetPwUser,  setResetPwUser]  = useState<User | null>(null)
 
   // ── Password form inline state ────────────────────────────────────────
   const [showOld, setShowOld] = useState(false)
@@ -67,10 +70,19 @@ export default function ParametresPage() {
   const pwForm       = useForm<PasswordForm>()
   const createForm   = useForm<UserCreateForm>({ defaultValues: { permission: 'CR', modules: [] } })
   const editForm     = useForm<UserEditForm>({ defaultValues: { modules: [] } })
+  const resetPwForm  = useForm<ResetPwForm>()
 
   // ── Mutations ─────────────────────────────────────────────────────────
   const saveClinic = useMutation({
-    mutationFn: (d: ClinicForm) => api.patch('/clinic/', d).then(r => r.data),
+    mutationFn: (d: ClinicForm) => {
+      const form = new FormData()
+      form.append('name', d.name)
+      if (d.telephone) form.append('telephone', d.telephone)
+      if (d.email)     form.append('email', d.email)
+      if (d.adresse)   form.append('adresse', d.adresse)
+      if (d.logo && d.logo.length > 0) form.append('logo', d.logo[0])
+      return api.patch('/clinic/', form, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data)
+    },
     onSuccess: (data) => { setClinic(data); setOpenClinic(false) },
   })
 
@@ -111,6 +123,12 @@ export default function ParametresPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
   })
 
+  const resetPw = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: ResetPwForm }) =>
+      api.post(`/users/${id}/reset-password/`, data),
+    onSuccess: () => { setResetPwUser(null); resetPwForm.reset() },
+  })
+
   // ── Handlers ──────────────────────────────────────────────────────────
   const openEditClinic = () => {
     clinicForm.reset({ name: clinic?.name ?? '', telephone: clinic?.telephone ?? '', adresse: clinic?.adresse ?? '', email: clinic?.email ?? '' })
@@ -134,6 +152,20 @@ export default function ParametresPage() {
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Modifier la clinique</DialogTitle></DialogHeader>
           <form onSubmit={clinicForm.handleSubmit(d => saveClinic.mutate(d))} className="space-y-4">
+            {/* Logo actuel + upload */}
+            <div>
+              <Label>Logo</Label>
+              <div className="mt-1.5 flex items-center gap-4">
+                {mediaUrl(clinic?.logo)
+                  ? <img src={mediaUrl(clinic?.logo)!} alt="logo" className="w-14 h-14 rounded-xl object-contain border border-gray-200 bg-gray-50 p-1" />
+                  : <div className="w-14 h-14 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center bg-gray-50 text-gray-300 text-xs text-center">Aucun logo</div>
+                }
+                <div className="flex-1">
+                  <Input type="file" accept="image/*" {...clinicForm.register('logo')} className="text-sm" />
+                  <p className="text-xs text-gray-400 mt-1">PNG, JPG ou SVG — max 2 Mo</p>
+                </div>
+              </div>
+            </div>
             <div><Label>Nom *</Label><Input {...clinicForm.register('name', { required: true })} /></div>
             <div><Label>Téléphone</Label><Input {...clinicForm.register('telephone')} /></div>
             <div><Label>Email</Label><Input type="email" {...clinicForm.register('email')} /></div>
@@ -270,6 +302,28 @@ export default function ParametresPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!resetPwUser} onOpenChange={v => { if (!v) { setResetPwUser(null); resetPwForm.reset() } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Réinitialiser le mot de passe — {resetPwUser?.full_name}</DialogTitle></DialogHeader>
+          <form onSubmit={resetPwForm.handleSubmit(d => resetPw.mutate({ id: resetPwUser!.id, data: d }))} className="space-y-4">
+            <div>
+              <Label>Nouveau mot de passe *</Label>
+              <Input type="password" {...resetPwForm.register('new_password', { required: true, minLength: 8 })} />
+              {resetPwForm.formState.errors.new_password && <p className="text-xs text-red-500 mt-1">Minimum 8 caractères.</p>}
+            </div>
+            <div>
+              <Label>Confirmer le mot de passe *</Label>
+              <Input type="password" {...resetPwForm.register('new_password2', { required: true })} />
+            </div>
+            {resetPw.isError && <p className="text-xs text-red-500">Erreur — les mots de passe ne correspondent pas.</p>}
+            <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">
+              <Button type="button" variant="outline" onClick={() => { setResetPwUser(null); resetPwForm.reset() }}>Annuler</Button>
+              <Button type="submit" disabled={resetPw.isPending}>{resetPw.isPending ? 'Réinitialisation...' : 'Réinitialiser'}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Header page ── */}
       <div>
         <h1 className="text-2xl font-bold text-gray-800">Paramètres</h1>
@@ -288,6 +342,11 @@ export default function ParametresPage() {
             </Button>
           </CardHeader>
           <CardContent className="px-6 pb-5">
+            {mediaUrl(clinic?.logo) && (
+              <div className="mb-4">
+                <img src={mediaUrl(clinic?.logo)!} alt={clinic?.name} className="h-14 w-auto max-w-[160px] object-contain rounded-lg border border-gray-100 bg-gray-50 p-1" />
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-gray-400 uppercase font-semibold mb-1">Nom</p>
@@ -453,6 +512,11 @@ export default function ParametresPage() {
                         {u.id !== me?.id && (
                           <div className="flex items-center gap-1 justify-end">
                             <Button size="sm" variant="ghost" onClick={() => openEditUser(u)}><Pencil className="h-3.5 w-3.5" /></Button>
+                            <Button size="sm" variant="ghost" className="text-blue-500 hover:bg-blue-50"
+                              title="Réinitialiser le mot de passe"
+                              onClick={() => { setResetPwUser(u); resetPwForm.reset() }}>
+                              <KeyRound className="h-3.5 w-3.5" />
+                            </Button>
                             <Button size="sm" variant="ghost"
                               className={u.is_active ? 'text-orange-500 hover:bg-orange-50' : 'text-green-600 hover:bg-green-50'}
                               onClick={() => toggleActive.mutate({ id: u.id, is_active: !u.is_active })}>

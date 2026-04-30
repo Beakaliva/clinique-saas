@@ -1,3 +1,5 @@
+import datetime
+
 from django.contrib.auth import authenticate
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
@@ -13,7 +15,10 @@ from .models import Clinic, Permission, User
 # ---------------------------------------------------------------------------
 
 class ClinicSerializer(serializers.ModelSerializer):
-    type_display = serializers.CharField(source="get_type_display", read_only=True)
+    type_display   = serializers.CharField(source="get_type_display", read_only=True)
+    trial_active   = serializers.BooleanField(read_only=True)
+    trial_days_left = serializers.IntegerField(read_only=True)
+    has_access     = serializers.BooleanField(read_only=True)
 
     class Meta:
         model  = Clinic
@@ -21,17 +26,27 @@ class ClinicSerializer(serializers.ModelSerializer):
             "id", "name", "type", "type_display", "slug",
             "telephone", "adresse", "email", "logo",
             "is_active", "created_at",
+            "trial_ends_at", "is_subscribed", "subscribed_plan",
+            "trial_active", "trial_days_left", "has_access",
         )
-        read_only_fields = ("slug", "created_at")
+        read_only_fields = ("slug", "created_at", "trial_ends_at", "is_subscribed", "subscribed_plan")
 
 
 class ClinicLightSerializer(serializers.ModelSerializer):
     """Version légère pour l'imbrication dans UserSerializer."""
-    type_display = serializers.CharField(source="get_type_display", read_only=True)
+    type_display    = serializers.CharField(source="get_type_display", read_only=True)
+    trial_active    = serializers.BooleanField(read_only=True)
+    trial_days_left = serializers.IntegerField(read_only=True)
+    has_access      = serializers.BooleanField(read_only=True)
+    is_subscribed   = serializers.BooleanField(read_only=True)
 
     class Meta:
         model  = Clinic
-        fields = ("id", "name", "type", "type_display", "slug")
+        fields = (
+            "id", "name", "type", "type_display", "slug", "logo",
+            "telephone", "adresse", "email",
+            "trial_active", "trial_days_left", "has_access", "is_subscribed",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -134,11 +149,12 @@ class RegisterSerializer(serializers.Serializer):
         )
 
         clinic = Clinic.objects.create(
-            name      = validated_data["clinic_name"],
-            type      = validated_data["clinic_type"],
-            telephone = validated_data.get("clinic_telephone", ""),
-            adresse   = validated_data.get("clinic_adresse", ""),
-            email     = validated_data.get("clinic_email", ""),
+            name          = validated_data["clinic_name"],
+            type          = validated_data["clinic_type"],
+            telephone     = validated_data.get("clinic_telephone", ""),
+            adresse       = validated_data.get("clinic_adresse", ""),
+            email         = validated_data.get("clinic_email", ""),
+            trial_ends_at = datetime.date.today() + datetime.timedelta(days=30),
         )
 
         # 2. Créer le premier utilisateur (admin de la clinique)

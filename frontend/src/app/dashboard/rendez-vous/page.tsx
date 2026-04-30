@@ -1,17 +1,33 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useForm } from 'react-hook-form'
+import { useForm, Controller } from 'react-hook-form'
+import { useSearchParams } from 'next/navigation'
+import { useClinicAccess } from '@/hooks/use-clinic-access'
 import api from '@/lib/api'
+import { useAuthStore } from '@/store/auth.store'
 import type { RendezVous, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DateTimeInput } from '@/components/ui/datetime-input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import PatientSelect from '@/components/ui/patient-select'
-import { Plus, Search, Calendar, Clock, User, ChevronLeft, ChevronRight, Pencil, Trash2 } from 'lucide-react'
+import { FilterBar, type FilterState } from '@/components/ui/filter-bar'
+import { Pagination } from '@/components/ui/pagination'
+import { Plus, Search, Calendar, Clock, User, Pencil, Trash2, CheckCircle2, XCircle, CalendarCheck } from 'lucide-react'
+import { StatCards, type StatDef } from '@/components/ui/stat-cards'
+
+const RDV_STATS: StatDef[] = [
+  { label: 'Total RDV',   endpoint: '/rendez-vous/', icon: Calendar,     color: 'bg-blue-50 text-blue-600' },
+  { label: 'Planifiés',   endpoint: '/rendez-vous/', params: { statut: 'planifie' },  icon: Clock,         color: 'bg-yellow-50 text-yellow-600' },
+  { label: 'Confirmés',   endpoint: '/rendez-vous/', params: { statut: 'confirme' },  icon: CheckCircle2,  color: 'bg-green-50 text-green-600' },
+  { label: 'Annulés',     endpoint: '/rendez-vous/', params: { statut: 'annule' },    icon: XCircle,       color: 'bg-red-50 text-red-600' },
+]
+
+const INIT_FILTERS: FilterState = { dateDebut: '', dateFin: '', mois: '', annee: '', statut: '' }
 
 const STATUTS = [
   { value: 'planifie',  label: 'Planifié',  color: 'bg-blue-50 text-blue-700' },
@@ -25,24 +41,44 @@ function getStatutStyle(statut: string) {
   return STATUTS.find(s => s.value === statut)?.color ?? 'bg-gray-100 text-gray-600'
 }
 
-function fetchRdv(search: string, page: number) {
-  return api.get<PaginatedResponse<RendezVous>>('/rendez-vous/', { params: { search, page } }).then(r => r.data)
-}
 
 export default function RendezVousPage() {
+  return <Suspense><RendezVousContent /></Suspense>
+}
+
+function RendezVousContent() {
   const qc = useQueryClient()
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
-  const [open, setOpen] = useState(false)
+  const searchParams = useSearchParams()
+  const user = useAuthStore((s) => s.user)
+  const canC = user?.is_superuser || (user?.permission ?? '').includes('C')
+  const { hasAccess } = useClinicAccess()
+  const [search,  setSearch]  = useState('')
+  const [page,    setPage]    = useState(1)
+  const [open,    setOpen]    = useState(false)
   const [editing, setEditing] = useState<RendezVous | null>(null)
   const [patientId, setPatientId] = useState<number | null>(null)
+  const [filters, setFilters] = useState<FilterState>(INIT_FILTERS)
+
+  const setFilter    = (k: string, v: string) => { setFilters(f => ({ ...f, [k]: v })); setPage(1) }
+  const resetFilters = () => { setFilters(INIT_FILTERS); setPage(1) }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['rendez-vous', search, page],
-    queryFn: () => fetchRdv(search, page),
+    queryKey: ['rendez-vous', search, page, filters],
+    queryFn: () => api.get<PaginatedResponse<RendezVous>>('/rendez-vous/', { params: {
+      search, page,
+      ...(filters.dateDebut ? { date_debut: filters.dateDebut } : {}),
+      ...(filters.dateFin   ? { date_fin:   filters.dateFin }   : {}),
+      ...(filters.mois      ? { mois:       filters.mois }      : {}),
+      ...(filters.annee     ? { annee:      filters.annee }      : {}),
+      ...(filters.statut    ? { statut:     filters.statut }     : {}),
+    }}).then(r => r.data),
   })
 
-  const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<Partial<RendezVous>>()
+  const { register, handleSubmit, reset, setValue, control, formState: { errors } } = useForm<Partial<RendezVous>>()
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1' && canC) { setEditing(null); setPatientId(null); reset(); setOpen(true) }
+  }, [searchParams, canC]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = useMutation({
     mutationFn: (d: Partial<RendezVous>) =>
@@ -73,6 +109,7 @@ export default function RendezVousPage() {
 
   return (
     <div className="space-y-5">
+      <StatCards stats={RDV_STATS} />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -98,7 +135,7 @@ export default function RendezVousPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Date et heure *</Label>
-                  <Input type="datetime-local" {...register('date_heure', { required: true })} />
+                  <Controller control={control} name="date_heure" rules={{ required: true }} render={({ field }) => <DateTimeInput name={field.name} value={field.value ?? ''} onChange={(e) => field.onChange(e.target.value)} onBlur={field.onBlur} />} />
                 </div>
                 <div>
                   <Label>Durée (minutes)</Label>
@@ -121,7 +158,7 @@ export default function RendezVousPage() {
               </div>
               <div className="flex gap-3 justify-end">
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-                <Button type="submit" disabled={save.isPending || !patientId}>
+                <Button type="submit" disabled={!hasAccess || save.isPending || !patientId}>
                   {save.isPending ? 'Enregistrement...' : 'Enregistrer'}
                 </Button>
               </div>
@@ -130,14 +167,24 @@ export default function RendezVousPage() {
         </Dialog>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-        <Input
-          placeholder="Rechercher par patient, motif..."
-          className="pl-10"
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+      {/* Search + Filtres */}
+      <div className="space-y-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input
+            placeholder="Rechercher par patient, motif..."
+            className="pl-10"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+          />
+        </div>
+        <FilterBar
+          filters={filters}
+          onChange={setFilter}
+          onReset={resetFilters}
+          extras={[
+            { key: 'statut', label: 'Statut', options: STATUTS.map(s => ({ value: s.value, label: s.label })) },
+          ]}
         />
       </div>
 
@@ -210,20 +257,12 @@ export default function RendezVousPage() {
         </CardContent>
       </Card>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-500">Page {page} / {totalPages}</p>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(p => p - 1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button size="sm" variant="outline" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        count={data?.count}
+        onPageChange={setPage}
+      />
     </div>
   )
 }

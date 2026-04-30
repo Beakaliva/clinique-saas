@@ -2,16 +2,27 @@
 
 import { useState, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useForm } from 'react-hook-form'
+import { useForm, Controller } from 'react-hook-form'
+import { useClinicAccess } from '@/hooks/use-clinic-access'
 import api from '@/lib/api'
 import type { ExamenRadio, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DateTimeInput } from '@/components/ui/datetime-input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import PatientSelect from '@/components/ui/patient-select'
-import { Plus, Search, Radiation, User, ChevronLeft, ChevronRight, Pencil, Trash2 } from 'lucide-react'
+import { Pagination } from '@/components/ui/pagination'
+import { Plus, Search, Radiation, User, Pencil, Trash2, Clock, CheckCircle2, XCircle, ScanLine } from 'lucide-react'
+import { StatCards, type StatDef } from '@/components/ui/stat-cards'
+
+const RADIO_STATS: StatDef[] = [
+  { label: 'Total examens', endpoint: '/radiologie/', icon: ScanLine,   color: 'bg-cyan-50 text-cyan-600' },
+  { label: 'En attente',    endpoint: '/radiologie/', params: { statut: 'en_attente' }, icon: Clock,        color: 'bg-yellow-50 text-yellow-600' },
+  { label: 'Réalisés',      endpoint: '/radiologie/', params: { statut: 'realise' },    icon: CheckCircle2, color: 'bg-blue-50 text-blue-600' },
+  { label: 'Interprétés',   endpoint: '/radiologie/', params: { statut: 'interprete' }, icon: Radiation,    color: 'bg-green-50 text-green-600' },
+]
 
 const STATUTS = [
   { value: 'en_attente', label: 'En attente', color: 'bg-yellow-50 text-yellow-700' },
@@ -30,7 +41,8 @@ interface FormData {
 
 function RadiologieContent() {
   const qc = useQueryClient()
-  const [search, setSearch] = useState('')
+  const { hasAccess } = useClinicAccess()
+    const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<ExamenRadio | null>(null)
@@ -41,7 +53,7 @@ function RadiologieContent() {
     queryFn: () => api.get<PaginatedResponse<ExamenRadio>>('/radiologie/', { params: { search, page } }).then(r => r.data),
   })
 
-  const { register, handleSubmit, reset, setValue } = useForm<FormData>({ defaultValues: { statut: 'en_attente' } })
+  const { register, handleSubmit, reset, setValue, control } = useForm<FormData>({ defaultValues: { statut: 'en_attente' } })
 
   const save = useMutation({
     mutationFn: (d: FormData) => editing
@@ -69,6 +81,7 @@ function RadiologieContent() {
 
   return (
     <div className="space-y-5">
+      <StatCards stats={RADIO_STATS} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Radiologie</h1>
@@ -82,7 +95,7 @@ function RadiologieContent() {
               <div><Label>Patient *</Label><PatientSelect value={patientId} onChange={setPatientId} required /></div>
               <div><Label>Type d'examen *</Label><Input {...register('type_examen', { required: true })} placeholder="Radiographie, Échographie, Scanner..." /></div>
               <div className="grid grid-cols-2 gap-3">
-                <div><Label>Date *</Label><Input type="datetime-local" {...register('date', { required: true })} /></div>
+                <div><Label>Date *</Label><Controller control={control} name="date" rules={{ required: true }} render={({ field }) => <DateTimeInput name={field.name} value={field.value ?? ''} onChange={(e) => field.onChange(e.target.value)} onBlur={field.onBlur} />} /></div>
                 <div><Label>Statut</Label>
                   <select {...register('statut')} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm">
                     {STATUTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -93,7 +106,7 @@ function RadiologieContent() {
               <div><Label>Notes</Label><textarea {...register('notes')} rows={2} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none" /></div>
               <div className="flex gap-3 justify-end">
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-                <Button type="submit" disabled={save.isPending || !patientId}>{save.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
+                <Button type="submit" disabled={!hasAccess || save.isPending || !patientId}>{save.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
               </div>
             </form>
           </DialogContent>
@@ -145,15 +158,12 @@ function RadiologieContent() {
         </CardContent>
       </Card>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-500">Page {page} / {totalPages}</p>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(p => p - 1)}><ChevronLeft className="h-4 w-4" /></Button>
-            <Button size="sm" variant="outline" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}><ChevronRight className="h-4 w-4" /></Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        count={data?.count}
+        onPageChange={setPage}
+      />
     </div>
   )
 }

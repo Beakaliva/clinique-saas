@@ -14,6 +14,13 @@ export interface Clinic {
   created_at: string
   available_groups: [string, string][]
   available_modules: [string, string][]
+  // Trial SaaS
+  trial_ends_at:    string | null
+  is_subscribed:    boolean
+  subscribed_plan:  string
+  trial_active:     boolean
+  trial_days_left:  number
+  has_access:       boolean
 }
 
 export const CLINIC_TYPES = [

@@ -1,6 +1,8 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useState } from 'react'
 import { useAuthStore } from '@/store/auth.store'
 import { useQuery } from '@tanstack/react-query'
 import api from '@/lib/api'
@@ -45,12 +47,24 @@ const MODULES = [
   { href: '/dashboard/factures',      label: 'Facturation',   icon: Receipt,       color: 'text-indigo-600', bg: 'bg-indigo-50', module: 'factures' },
 ]
 
+const CURRENT_YEAR = new Date().getFullYear()
+const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i)
+const PERIODES = [
+  { value: 7,  label: '7j' },
+  { value: 14, label: '14j' },
+  { value: 30, label: '30j' },
+]
+
 export default function DashboardPage() {
+  const router = useRouter()
   const { user, clinic, canAccess } = useAuthStore()
 
+  const [annee,   setAnnee]   = useState(CURRENT_YEAR)
+  const [periode, setPeriode] = useState(7)
+
   const { data: stats } = useQuery<StatsData>({
-    queryKey: ['dashboard-stats'],
-    queryFn: () => api.get('/stats/').then(r => r.data),
+    queryKey: ['dashboard-stats', annee, periode],
+    queryFn: () => api.get('/stats/', { params: { annee, periode } }).then(r => r.data),
   })
 
   const { data: recentPatients = [] } = useQuery<Patient[]>({
@@ -116,13 +130,29 @@ export default function DashboardPage() {
 
       {/* Graphes */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        {/* Graphe période — avec sélecteur de période */}
         <div className="bg-white rounded-2xl shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="font-semibold text-gray-800 text-sm">Patients — 7 derniers jours</h2>
+              <h2 className="font-semibold text-gray-800 text-sm">Patients — activité récente</h2>
               <p className="text-xs text-gray-400">Nouveaux enregistrements</p>
             </div>
-            <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-lg font-medium">Cette semaine</span>
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+              {PERIODES.map(p => (
+                <button
+                  key={p.value}
+                  onClick={() => setPeriode(p.value)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                    periode === p.value
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
           <ResponsiveContainer width="100%" height={160}>
             <AreaChart data={stats?.weekly_patients ?? []} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
@@ -133,21 +163,28 @@ export default function DashboardPage() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="jour"   tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-              <YAxis                  tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+              <XAxis dataKey="jour" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} interval={periode > 14 ? 3 : 0} />
+              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
               <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-              <Area type="monotone" dataKey="valeur" name="Patients" stroke="#3b82f6" strokeWidth={2} fill="url(#colorBlue)" dot={{ r: 3, fill: '#3b82f6' }} />
+              <Area type="monotone" dataKey="valeur" name="Patients" stroke="#3b82f6" strokeWidth={2} fill="url(#colorBlue)" dot={periode <= 14 ? { r: 3, fill: '#3b82f6' } : false} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
 
+        {/* Graphe annuel — avec sélecteur d'année */}
         <div className="bg-white rounded-2xl shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="font-semibold text-gray-800 text-sm">Patients vs Consultations</h2>
-              <p className="text-xs text-gray-400">Par mois — {new Date().getFullYear()}</p>
+              <p className="text-xs text-gray-400">Par mois</p>
             </div>
-            <span className="text-xs bg-purple-50 text-purple-600 px-2 py-1 rounded-lg font-medium">Annuel</span>
+            <select
+              value={annee}
+              onChange={e => setAnnee(Number(e.target.value))}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-300"
+            >
+              {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
           </div>
           <ResponsiveContainer width="100%" height={160}>
             <BarChart data={stats?.monthly_compare ?? []} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
@@ -172,13 +209,14 @@ export default function DashboardPage() {
           {QUICK_ACTIONS.map(({ href, label, icon: Icon, color, module }) => {
             if (!canAccess(module)) return null
             return (
-              <Link key={href} href={href}
+              <button key={href}
+                onClick={() => router.push(`${href}?new=1`)}
                 className="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-gray-50 transition-colors group text-center">
                 <div className={`w-10 h-10 ${color} rounded-xl flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform`}>
                   <Icon className="h-5 w-5 text-white" />
                 </div>
                 <span className="text-xs text-gray-600 font-medium leading-tight">{label}</span>
-              </Link>
+              </button>
             )
           })}
         </div>

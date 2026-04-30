@@ -14,21 +14,27 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import {
   Building2, Users, User as UserIcon, Activity, CheckCircle2, XCircle,
   Pencil, LogIn, ArrowLeft, Phone, Mail, MapPin, Search,
-  ShieldAlert, Plus,
+  ShieldAlert, Plus, CreditCard, Zap, Clock, Ban, RefreshCw, Trash2, AlertTriangle,
 } from 'lucide-react'
+import { mediaUrl } from '@/lib/media'
 
 interface ClinicStat {
   id: number; name: string; type: string; type_display: string
   telephone: string; email: string; adresse: string; slug: string
+  logo: string | null
   is_active: boolean; created_at: string
   users_count: number; patients_count: number
+  // Trial
+  trial_ends_at: string | null; is_subscribed: boolean
+  subscribed_plan: string; trial_active: boolean
+  trial_days_left: number; has_access: boolean
 }
 interface ClinicEditForm { name: string; telephone: string; email: string; adresse: string; is_active: boolean }
 interface ClinicCreateForm {
   clinic_name: string; clinic_type: string
   clinic_telephone: string; clinic_email: string; clinic_adresse: string
   first_name: string; last_name: string; telephone: string; email: string
-  password: string; password2: string
+  password: string; password2: string; logo?: FileList
 }
 
 const CLINIC_TYPES = [
@@ -40,6 +46,12 @@ const CLINIC_TYPES = [
   { value: 'psychiatrie',   label: 'Clinique psychiatrique' },
 ]
 
+const PLANS = [
+  { value: 'starter',  label: 'Starter — 150 000 GNF/mois' },
+  { value: 'pro',      label: 'Pro — 350 000 GNF/mois' },
+  { value: 'hopital',  label: 'Hôpital — Sur devis' },
+]
+
 const TYPE_COLORS: Record<string, string> = {
   generale:      'bg-blue-50 text-blue-700',
   dentaire:      'bg-cyan-50 text-cyan-700',
@@ -49,15 +61,46 @@ const TYPE_COLORS: Record<string, string> = {
   psychiatrie:   'bg-orange-50 text-orange-700',
 }
 
+function TrialBadge({ c }: { c: ClinicStat }) {
+  if (c.is_subscribed) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full bg-green-50 text-green-700">
+        <CreditCard className="h-3 w-3" />
+        {c.subscribed_plan ? c.subscribed_plan.charAt(0).toUpperCase() + c.subscribed_plan.slice(1) : 'Abonné'}
+      </span>
+    )
+  }
+  if (c.trial_active) {
+    const urgent = c.trial_days_left <= 3
+    return (
+      <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full ${urgent ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-700'}`}>
+        <Clock className="h-3 w-3" />
+        {c.trial_days_left}j restants
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full bg-red-50 text-red-600">
+      <Ban className="h-3 w-3" /> Expiré
+    </span>
+  )
+}
+
 export default function SuperAdminPage() {
   const router = useRouter()
   const qc = useQueryClient()
   const { user: me, impersonate, superAdminSnapshot, exitImpersonation } = useAuthStore()
 
-  const [search, setSearch]       = useState('')
-  const [editClinic, setEditClinic] = useState<ClinicStat | null>(null)
-  const [viewUsers, setViewUsers]   = useState<ClinicStat | null>(null)
-  const [openCreate, setOpenCreate] = useState(false)
+  const [search, setSearch]           = useState('')
+  const [editClinic, setEditClinic]   = useState<ClinicStat | null>(null)
+  const [viewUsers, setViewUsers]     = useState<ClinicStat | null>(null)
+  const [openCreate, setOpenCreate]   = useState(false)
+  const [subClinic, setSubClinic]     = useState<ClinicStat | null>(null)
+  const [deleteClinic, setDeleteClinic] = useState<ClinicStat | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState('')
+  const [subAction, setSubAction]     = useState<'activate' | 'deactivate' | 'extend_trial'>('activate')
+  const [subPlan, setSubPlan]         = useState('pro')
+  const [extendDays, setExtendDays]   = useState(30)
 
   // ── Queries ──────────────────────────────────────────────────────────
   const { data: clinics = [], isLoading } = useQuery({
@@ -71,7 +114,7 @@ export default function SuperAdminPage() {
     enabled: !!viewUsers,
   })
 
-  // ── Forms & Mutations ─────────────────────────────────────────────────
+  // ── Mutations ─────────────────────────────────────────────────────────
   const editForm   = useForm<ClinicEditForm>()
   const createForm = useForm<ClinicCreateForm>({ defaultValues: { clinic_type: 'generale' } })
 
@@ -82,8 +125,25 @@ export default function SuperAdminPage() {
   })
 
   const createClinic = useMutation({
-    mutationFn: (data: ClinicCreateForm) =>
-      api.post('/auth/register/', data).then(r => r.data),
+    mutationFn: async (data: ClinicCreateForm) => {
+      const res = await api.post('/auth/register/', {
+        clinic_name: data.clinic_name, clinic_type: data.clinic_type,
+        clinic_telephone: data.clinic_telephone, clinic_email: data.clinic_email,
+        clinic_adresse: data.clinic_adresse,
+        first_name: data.first_name, last_name: data.last_name,
+        telephone: data.telephone, email: data.email,
+        password: data.password, password2: data.password2,
+      })
+      // Si un logo est fourni, on le PATCH sur la clinique créée
+      if (data.logo && data.logo.length > 0) {
+        const form = new FormData()
+        form.append('logo', data.logo[0])
+        await api.patch(`/superadmin/clinics/${res.data.clinic.id}/`, form, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+      }
+      return res.data
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sa-clinics'] })
       setOpenCreate(false)
@@ -100,24 +160,48 @@ export default function SuperAdminPage() {
     },
   })
 
+  const deleteClinicMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/superadmin/clinics/${id}/`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sa-clinics'] })
+      setDeleteClinic(null)
+      setDeleteConfirm('')
+    },
+  })
+
+  const subscriptionMutation = useMutation({
+    mutationFn: ({ id, action, plan, days }: { id: number; action: string; plan?: string; days?: number }) =>
+      api.post(`/superadmin/clinics/${id}/subscription/`, { action, plan, days }).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sa-clinics'] })
+      setSubClinic(null)
+    },
+  })
+
   const openEdit = (c: ClinicStat) => {
     setEditClinic(c)
     editForm.reset({ name: c.name, telephone: c.telephone, email: c.email, adresse: c.adresse, is_active: c.is_active })
   }
 
-  // ── Filtered list ─────────────────────────────────────────────────────
+  const openSubscription = (c: ClinicStat) => {
+    setSubClinic(c)
+    setSubAction(c.is_subscribed ? 'extend_trial' : 'activate')
+    setSubPlan(c.subscribed_plan || 'pro')
+    setExtendDays(30)
+  }
+
   const filtered = clinics.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     c.type_display.toLowerCase().includes(search.toLowerCase())
   )
 
-  // ── Stats globales ────────────────────────────────────────────────────
-  const totalClinics  = clinics.length
-  const activeClinics = clinics.filter(c => c.is_active).length
-  const totalUsers    = clinics.reduce((s, c) => s + c.users_count, 0)
-  const totalPatients = clinics.reduce((s, c) => s + c.patients_count, 0)
+  const totalClinics   = clinics.length
+  const activeClinics  = clinics.filter(c => c.is_active).length
+  const subscribedCount = clinics.filter(c => c.is_subscribed).length
+  const trialCount     = clinics.filter(c => c.trial_active && !c.is_subscribed).length
+  const totalUsers     = clinics.reduce((s, c) => s + c.users_count, 0)
+  const totalPatients  = clinics.reduce((s, c) => s + c.patients_count, 0)
 
-  // Guard superuser — après tous les hooks
   if (me && !me.is_superuser) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -133,12 +217,11 @@ export default function SuperAdminPage() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* Dialog créer clinique */}
+      {/* ── Dialog créer clinique ── */}
       <Dialog open={openCreate} onOpenChange={v => { if (!v) { setOpenCreate(false); createForm.reset({ clinic_type: 'generale' }) } }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Créer une nouvelle clinique</DialogTitle></DialogHeader>
           <form onSubmit={createForm.handleSubmit(d => createClinic.mutate(d))} className="space-y-5">
-
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Informations de la clinique</p>
               <div className="grid grid-cols-2 gap-3">
@@ -149,31 +232,27 @@ export default function SuperAdminPage() {
                     {CLINIC_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </div>
-                <div><Label>Téléphone</Label><Input {...createForm.register('clinic_telephone')} placeholder="+213..." /></div>
-                <div><Label>Email</Label><Input type="email" {...createForm.register('clinic_email')} placeholder="contact@..." /></div>
+                <div><Label>Téléphone</Label><Input {...createForm.register('clinic_telephone')} /></div>
+                <div><Label>Email</Label><Input type="email" {...createForm.register('clinic_email')} /></div>
                 <div className="col-span-2"><Label>Adresse</Label><Input {...createForm.register('clinic_adresse')} /></div>
+                <div className="col-span-2">
+                  <Label>Logo <span className="text-gray-400 font-normal">(optionnel)</span></Label>
+                  <Input type="file" accept="image/*" {...createForm.register('logo')} className="text-sm mt-1" />
+                </div>
               </div>
             </div>
-
             <div className="border-t border-gray-100 pt-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Administrateur de la clinique</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Administrateur</p>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Prénom *</Label><Input {...createForm.register('first_name', { required: true })} /></div>
                 <div><Label>Nom *</Label><Input {...createForm.register('last_name', { required: true })} /></div>
-                <div><Label>Téléphone *</Label><Input {...createForm.register('telephone', { required: true })} placeholder="+213..." /></div>
+                <div><Label>Téléphone *</Label><Input {...createForm.register('telephone', { required: true })} /></div>
                 <div><Label>Email</Label><Input type="email" {...createForm.register('email')} /></div>
                 <div><Label>Mot de passe *</Label><Input type="password" {...createForm.register('password', { required: true, minLength: 8 })} /></div>
                 <div><Label>Confirmer *</Label><Input type="password" {...createForm.register('password2', { required: true })} /></div>
               </div>
             </div>
-
-            {createClinic.isError && (
-              <p className="text-xs text-red-500">
-                {(createClinic.error as { response?: { data?: { detail?: string; telephone?: string[] } } })?.response?.data?.detail
-                  || (createClinic.error as { response?: { data?: { telephone?: string[] } } })?.response?.data?.telephone?.[0]
-                  || 'Erreur lors de la création.'}
-              </p>
-            )}
+            {createClinic.isError && <p className="text-xs text-red-500">Erreur lors de la création.</p>}
             <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">
               <Button type="button" variant="outline" onClick={() => { setOpenCreate(false); createForm.reset({ clinic_type: 'generale' }) }}>Annuler</Button>
               <Button type="submit" disabled={createClinic.isPending}>{createClinic.isPending ? 'Création...' : 'Créer la clinique'}</Button>
@@ -182,7 +261,7 @@ export default function SuperAdminPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog modifier clinique */}
+      {/* ── Dialog modifier clinique ── */}
       <Dialog open={!!editClinic} onOpenChange={v => { if (!v) setEditClinic(null) }}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Modifier — {editClinic?.name}</DialogTitle></DialogHeader>
@@ -192,8 +271,8 @@ export default function SuperAdminPage() {
             <div><Label>Email</Label><Input type="email" {...editForm.register('email')} /></div>
             <div><Label>Adresse</Label><Input {...editForm.register('adresse')} /></div>
             <div className="flex items-center gap-2">
-              <input type="checkbox" id="chk_clinic_active" {...editForm.register('is_active')} className="h-4 w-4" />
-              <label htmlFor="chk_clinic_active" className="text-sm text-gray-700">Clinique active</label>
+              <input type="checkbox" id="chk_active" {...editForm.register('is_active')} className="h-4 w-4" />
+              <label htmlFor="chk_active" className="text-sm text-gray-700">Clinique active</label>
             </div>
             {updateClinic.isError && <p className="text-xs text-red-500">Erreur lors de la mise à jour.</p>}
             <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">
@@ -204,18 +283,16 @@ export default function SuperAdminPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog utilisateurs d'une clinique */}
+      {/* ── Dialog utilisateurs ── */}
       <Dialog open={!!viewUsers} onOpenChange={v => { if (!v) setViewUsers(null) }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle>Utilisateurs — {viewUsers?.name}</DialogTitle></DialogHeader>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[480px] text-sm">
               <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  {['Nom', 'Téléphone', 'Groupe', 'Permission', 'Statut'].map(h => (
-                    <th key={h} className="text-left text-xs font-semibold text-gray-500 uppercase px-3 py-2">{h}</th>
-                  ))}
-                </tr>
+                <tr>{['Nom', 'Téléphone', 'Groupe', 'Permission', 'Statut'].map(h => (
+                  <th key={h} className="text-left text-xs font-semibold text-gray-500 uppercase px-3 py-2">{h}</th>
+                ))}</tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {clinicUsers.map(u => (
@@ -237,7 +314,178 @@ export default function SuperAdminPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Header */}
+      {/* ── Dialog gestion abonnement ── */}
+      <Dialog open={!!subClinic} onOpenChange={v => { if (!v) setSubClinic(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CreditCard className="h-4 w-4 text-blue-600" />
+              Abonnement — {subClinic?.name}
+            </DialogTitle>
+          </DialogHeader>
+
+          {subClinic && (
+            <div className="space-y-4">
+              {/* Statut actuel */}
+              <div className="bg-gray-50 rounded-xl p-3 text-sm space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-500">Statut actuel</span>
+                  <TrialBadge c={subClinic} />
+                </div>
+                {subClinic.trial_ends_at && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-500">Fin de trial</span>
+                    <span className="font-medium text-gray-700">
+                      {new Date(subClinic.trial_ends_at).toLocaleDateString('fr-FR')}
+                    </span>
+                  </div>
+                )}
+                {subClinic.is_subscribed && subClinic.subscribed_plan && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-500">Plan souscrit</span>
+                    <span className="font-semibold text-blue-700 capitalize">{subClinic.subscribed_plan}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Choisir l'action */}
+              <div className="space-y-2">
+                <Label>Action</Label>
+                <div className="space-y-2">
+                  <label className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${subAction === 'activate' ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <input type="radio" name="subAction" value="activate" checked={subAction === 'activate'} onChange={() => setSubAction('activate')} className="sr-only" />
+                    <Zap className={`h-4 w-4 ${subAction === 'activate' ? 'text-green-600' : 'text-gray-400'}`} />
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">Activer l'abonnement</p>
+                      <p className="text-xs text-gray-500">Le client a payé, accès illimité</p>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${subAction === 'extend_trial' ? 'border-amber-500 bg-amber-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <input type="radio" name="subAction" value="extend_trial" checked={subAction === 'extend_trial'} onChange={() => setSubAction('extend_trial')} className="sr-only" />
+                    <RefreshCw className={`h-4 w-4 ${subAction === 'extend_trial' ? 'text-amber-600' : 'text-gray-400'}`} />
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">Prolonger le trial</p>
+                      <p className="text-xs text-gray-500">Donner plus de temps d'essai</p>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${subAction === 'deactivate' ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <input type="radio" name="subAction" value="deactivate" checked={subAction === 'deactivate'} onChange={() => setSubAction('deactivate')} className="sr-only" />
+                    <Ban className={`h-4 w-4 ${subAction === 'deactivate' ? 'text-red-600' : 'text-gray-400'}`} />
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">Désactiver l'abonnement</p>
+                      <p className="text-xs text-gray-500">Rétrograder vers trial/expiré</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Options selon l'action */}
+              {subAction === 'activate' && (
+                <div>
+                  <Label>Plan</Label>
+                  <select value={subPlan} onChange={e => setSubPlan(e.target.value)}
+                    className="w-full h-9 px-3 mt-1 rounded-md border border-gray-200 bg-white text-sm">
+                    {PLANS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {subAction === 'extend_trial' && (
+                <div>
+                  <Label>Nombre de jours à ajouter</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    {[7, 14, 30, 60].map(d => (
+                      <button key={d} type="button"
+                        onClick={() => setExtendDays(d)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${extendDays === d ? 'bg-amber-500 text-white border-amber-500' : 'bg-white border-gray-200 text-gray-600 hover:border-amber-300'}`}>
+                        {d}j
+                      </button>
+                    ))}
+                    <Input type="number" min={1} max={365} value={extendDays}
+                      onChange={e => setExtendDays(Number(e.target.value))}
+                      className="w-20 h-8 text-sm" />
+                  </div>
+                </div>
+              )}
+
+              {subscriptionMutation.isError && (
+                <p className="text-xs text-red-500">Erreur lors de l'opération.</p>
+              )}
+
+              <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">
+                <Button type="button" variant="outline" onClick={() => setSubClinic(null)}>Annuler</Button>
+                <Button
+                  disabled={subscriptionMutation.isPending}
+                  onClick={() => subscriptionMutation.mutate({
+                    id: subClinic.id,
+                    action: subAction,
+                    plan: subAction === 'activate' ? subPlan : undefined,
+                    days: subAction === 'extend_trial' ? extendDays : undefined,
+                  })}
+                  className={subAction === 'deactivate' ? 'bg-red-600 hover:bg-red-700' : subAction === 'extend_trial' ? 'bg-amber-500 hover:bg-amber-600' : ''}>
+                  {subscriptionMutation.isPending ? 'Enregistrement...' : (
+                    subAction === 'activate' ? 'Activer l\'abonnement' :
+                    subAction === 'extend_trial' ? `Prolonger de ${extendDays} jours` :
+                    'Désactiver l\'abonnement'
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog suppression clinique ── */}
+      <Dialog open={!!deleteClinic} onOpenChange={v => { if (!v) { setDeleteClinic(null); setDeleteConfirm('') } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" /> Supprimer la clinique
+            </DialogTitle>
+          </DialogHeader>
+          {deleteClinic && (
+            <div className="space-y-4">
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-2 text-sm text-red-800">
+                <p className="font-semibold">Cette action est irréversible.</p>
+                <p>Toutes les données associées à <strong>{deleteClinic.name}</strong> seront supprimées définitivement :</p>
+                <ul className="list-disc list-inside space-y-0.5 text-red-700">
+                  <li>{deleteClinic.users_count} utilisateur{deleteClinic.users_count > 1 ? 's' : ''}</li>
+                  <li>{deleteClinic.patients_count} patient{deleteClinic.patients_count > 1 ? 's' : ''}</li>
+                  <li>Consultations, rendez-vous, soins, factures, ordonnances...</li>
+                </ul>
+              </div>
+              <div>
+                <Label className="text-sm text-gray-700">
+                  Tapez <strong className="text-red-600">{deleteClinic.name}</strong> pour confirmer
+                </Label>
+                <Input
+                  className="mt-1"
+                  placeholder={deleteClinic.name}
+                  value={deleteConfirm}
+                  onChange={e => setDeleteConfirm(e.target.value)}
+                />
+              </div>
+              {deleteClinicMutation.isError && (
+                <p className="text-xs text-red-500">Erreur lors de la suppression.</p>
+              )}
+              <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">
+                <Button type="button" variant="outline" onClick={() => { setDeleteClinic(null); setDeleteConfirm('') }}>Annuler</Button>
+                <Button
+                  className="bg-red-600 hover:bg-red-700"
+                  disabled={deleteConfirm !== deleteClinic.name || deleteClinicMutation.isPending}
+                  onClick={() => deleteClinicMutation.mutate(deleteClinic.id)}>
+                  <Trash2 className="h-4 w-4 mr-1.5" />
+                  {deleteClinicMutation.isPending ? 'Suppression...' : 'Supprimer définitivement'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Header ── */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center">
@@ -271,19 +519,21 @@ export default function SuperAdminPage() {
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
 
         {/* Stats globales */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
           {[
-            { label: 'Cliniques totales',  value: totalClinics,  icon: Building2,    color: 'bg-blue-50 text-blue-600' },
-            { label: 'Cliniques actives',  value: activeClinics, icon: CheckCircle2, color: 'bg-green-50 text-green-600' },
-            { label: 'Utilisateurs',       value: totalUsers,    icon: Users,        color: 'bg-purple-50 text-purple-600' },
-            { label: 'Patients',           value: totalPatients, icon: Activity,     color: 'bg-rose-50 text-rose-600' },
+            { label: 'Cliniques',    value: totalClinics,    icon: Building2,    color: 'bg-blue-50 text-blue-600' },
+            { label: 'Actives',      value: activeClinics,   icon: CheckCircle2, color: 'bg-green-50 text-green-600' },
+            { label: 'Abonnées',     value: subscribedCount, icon: CreditCard,   color: 'bg-emerald-50 text-emerald-600' },
+            { label: 'En trial',     value: trialCount,      icon: Clock,        color: 'bg-amber-50 text-amber-600' },
+            { label: 'Utilisateurs', value: totalUsers,      icon: Users,        color: 'bg-purple-50 text-purple-600' },
+            { label: 'Patients',     value: totalPatients,   icon: Activity,     color: 'bg-rose-50 text-rose-600' },
           ].map(s => (
-            <div key={s.label} className="bg-white rounded-xl border-0 shadow-sm p-4 flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${s.color}`}>
-                <s.icon className="h-5 w-5" />
+            <div key={s.label} className="bg-white rounded-xl shadow-sm p-4 flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${s.color}`}>
+                <s.icon className="h-4 w-4" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-gray-800">{s.value}</p>
+                <p className="text-xl font-bold text-gray-800">{s.value}</p>
                 <p className="text-xs text-gray-500">{s.label}</p>
               </div>
             </div>
@@ -304,10 +554,10 @@ export default function SuperAdminPage() {
             <div className="flex items-center justify-center h-32 text-gray-400">Chargement...</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[800px]">
+              <table className="w-full min-w-[900px]">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
-                    {['Clinique', 'Type', 'Contact', 'Utilisateurs', 'Patients', 'Statut', 'Actions'].map(h => (
+                    {['Clinique', 'Type', 'Contact', 'Utilisateurs', 'Patients', 'Abonnement', 'Statut', 'Actions'].map(h => (
                       <th key={h} className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-3">{h}</th>
                     ))}
                   </tr>
@@ -317,9 +567,10 @@ export default function SuperAdminPage() {
                     <tr key={c.id} className="hover:bg-gray-50/50 transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
-                            <Building2 className="h-4 w-4 text-blue-600" />
-                          </div>
+                          {mediaUrl(c.logo)
+                            ? <img src={mediaUrl(c.logo)!} alt={c.name} className="w-8 h-8 rounded-lg object-contain border border-gray-200 bg-white p-0.5 shrink-0" />
+                            : <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center shrink-0"><Building2 className="h-4 w-4 text-blue-600" /></div>
+                          }
                           <div>
                             <p className="text-sm font-medium text-gray-800">{c.name}</p>
                             <p className="text-xs text-gray-400">{c.slug}</p>
@@ -343,28 +594,39 @@ export default function SuperAdminPage() {
                       </td>
                       <td className="px-4 py-3 text-sm font-semibold text-gray-700">{c.patients_count}</td>
                       <td className="px-4 py-3">
+                        <TrialBadge c={c} />
+                      </td>
+                      <td className="px-4 py-3">
                         {c.is_active
                           ? <span className="flex items-center gap-1 text-xs text-green-600 font-medium"><CheckCircle2 className="h-3.5 w-3.5" /> Active</span>
                           : <span className="flex items-center gap-1 text-xs text-red-500 font-medium"><XCircle className="h-3.5 w-3.5" /> Inactive</span>}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => openEdit(c)} title="Modifier">
+                          <Button size="sm" variant="ghost" onClick={() => openEdit(c)} title="Modifier infos">
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
-                          <Button size="sm" variant="ghost"
-                            className="text-blue-600 hover:bg-blue-50"
+                          <Button size="sm" variant="ghost" className="text-green-600 hover:bg-green-50"
+                            onClick={() => openSubscription(c)} title="Gérer l'abonnement">
+                            <CreditCard className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button size="sm" variant="ghost" className="text-blue-600 hover:bg-blue-50"
                             disabled={impersonateMutation.isPending}
                             onClick={() => impersonateMutation.mutate(c.id)}
                             title="Accéder à cette clinique">
                             <LogIn className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-50"
+                            onClick={() => { setDeleteClinic(c); setDeleteConfirm('') }}
+                            title="Supprimer la clinique">
+                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       </td>
                     </tr>
                   ))}
                   {filtered.length === 0 && (
-                    <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-sm">Aucune clinique trouvée</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400 text-sm">Aucune clinique trouvée</td></tr>
                   )}
                 </tbody>
               </table>

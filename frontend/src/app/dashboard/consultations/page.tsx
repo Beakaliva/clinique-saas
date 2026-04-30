@@ -1,23 +1,37 @@
 'use client'
 
-import { useState, Suspense } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useForm, useFieldArray } from 'react-hook-form'
+import { useForm, useFieldArray, Controller } from 'react-hook-form'
+import { useClinicAccess } from '@/hooks/use-clinic-access'
 import api from '@/lib/api'
 import { useAuthStore } from '@/store/auth.store'
-import type { Consultation, Soin, SoinActe, PaginatedResponse } from '@/types'
+import type { Consultation, Soin, SoinActe, PaginatedResponse, User } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DateTimeInput } from '@/components/ui/datetime-input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import PatientSelect from '@/components/ui/patient-select'
+import { FilterBar, type FilterState } from '@/components/ui/filter-bar'
 import { useRouter, useSearchParams } from 'next/navigation'
+
+const INIT_FILTERS_CONSULT: FilterState = { dateDebut: '', dateFin: '', mois: '', annee: '', statut: '' }
+import { Pagination } from '@/components/ui/pagination'
 import {
-  Plus, Search, Stethoscope, User, ChevronLeft, ChevronRight,
+  Plus, Search, Stethoscope, User as UserIcon,
   Pencil, Trash2, Heart, ArrowLeft, CheckCircle2, Clock, XCircle, HeartPulse,
   PlusCircle, XCircle as XCircleIcon, ExternalLink, Receipt,
 } from 'lucide-react'
+import { StatCards, type StatDef } from '@/components/ui/stat-cards'
+
+const CONSULT_STATS: StatDef[] = [
+  { label: 'Total',       endpoint: '/consultations/', icon: Stethoscope,  color: 'bg-blue-50 text-blue-600' },
+  { label: 'En attente',  endpoint: '/consultations/', params: { statut: 'en_attente' }, icon: Clock,        color: 'bg-yellow-50 text-yellow-600' },
+  { label: 'En cours',    endpoint: '/consultations/', params: { statut: 'en_cours' },   icon: HeartPulse,   color: 'bg-purple-50 text-purple-600' },
+  { label: 'Terminées',   endpoint: '/consultations/', params: { statut: 'terminee' },   icon: CheckCircle2, color: 'bg-green-50 text-green-600' },
+]
 
 // ── Statuts ──────────────────────────────────────────────────────────────
 
@@ -45,10 +59,19 @@ function statutLabel(val: string, list: typeof STATUTS_CONSULT) {
 
 // ── Fetchers ──────────────────────────────────────────────────────────────
 
-function fetchConsultations(search: string, page: number, patientId: number | null) {
-  return api.get<PaginatedResponse<Consultation>>('/consultations/', {
-    params: { search, page, ...(patientId ? { patient: patientId } : {}) }
-  }).then(r => r.data)
+function fetchConsultations(search: string, page: number, patientId: number | null, f?: FilterState) {
+  const params: Record<string, unknown> = { search, page }
+  if (patientId)  params.patient    = patientId
+  if (f?.dateDebut) params.date_debut = f.dateDebut
+  if (f?.dateFin)   params.date_fin   = f.dateFin
+  if (f?.mois)      params.mois       = f.mois
+  if (f?.annee)     params.annee      = f.annee
+  if (f?.statut)    params.statut     = f.statut
+  return api.get<PaginatedResponse<Consultation>>('/consultations/', { params }).then(r => r.data)
+}
+
+function fetchClinicUsers() {
+  return api.get<{ results: User[] }>('/users/', { params: { soignant: 1 } }).then(r => r.data.results ?? [])
 }
 
 function fetchSoinsByConsultation(consultationId: number) {
@@ -79,8 +102,11 @@ function fmt(val: string | number) {
 
 function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: Consultation; onBack: () => void; autoOpen?: boolean }) {
   const qc = useQueryClient()
-  const { hasPermission } = useAuthStore()
-  const canC = hasPermission('C'), canU = hasPermission('U'), canD = hasPermission('D')
+  const user = useAuthStore((s) => s.user)
+  const canC = user?.is_superuser || (user?.permission ?? '').includes('C')
+  const canU = user?.is_superuser || (user?.permission ?? '').includes('U')
+  const canD = user?.is_superuser || (user?.permission ?? '').includes('D')
+  const { hasAccess } = useClinicAccess()
   const router = useRouter()
   const [openSoin, setOpenSoin] = useState(autoOpen)
   const [editingSoin, setEditingSoin] = useState<Soin | null>(null)
@@ -169,7 +195,7 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
             Voir dans Soins
           </Button>
           <Dialog open={openSoin} onOpenChange={(v) => { setOpenSoin(v); if (!v) { reset({ actes: [] }); setEditingSoin(null) } }}>
-          {canC && <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Ajouter un soin</Button>} />}
+          {canC && hasAccess && <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Ajouter un soin</Button>} />}
           <DialogContent className="max-w-xl">
             <DialogHeader>
               <DialogTitle>{editingSoin ? 'Modifier le soin' : 'Nouveau soin'}</DialogTitle>
@@ -182,7 +208,19 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
                 </div>
                 <div>
                   <Label>Date *</Label>
-                  <Input type="datetime-local" {...register('date', { required: true })} />
+                  <Controller
+                    control={control}
+                    name="date"
+                    rules={{ required: true }}
+                    render={({ field }) => (
+                      <DateTimeInput
+                        name={field.name}
+                        value={field.value ?? ''}
+                        onChange={(e) => field.onChange(e.target.value)}
+                        onBlur={field.onBlur}
+                      />
+                    )}
+                  />
                 </div>
               </div>
               <div>
@@ -239,7 +277,7 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
               </div>
               <div className="flex gap-3 justify-end">
                 <Button type="button" variant="outline" onClick={() => setOpenSoin(false)}>Annuler</Button>
-                <Button type="submit" disabled={save.isPending}>
+                <Button type="submit" disabled={!hasAccess || save.isPending}>
                   {save.isPending ? 'Enregistrement...' : 'Enregistrer'}
                 </Button>
               </div>
@@ -323,15 +361,15 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
                       <div className="flex items-center gap-1 justify-end">
                         <Button
                           size="sm" variant="ghost"
-                          title={s.facture_id ? 'Voir la facture' : 'Générer la facture'}
+                          title={s.facture_id ? 'Mettre à jour la facture' : 'Générer la facture'}
                           className={s.facture_id ? 'text-green-600 hover:bg-green-50' : 'text-blue-600 hover:bg-blue-50'}
                           onClick={() => facturer.mutate(s.id)}
                           disabled={facturer.isPending}
                         >
                           <Receipt className="h-3.5 w-3.5" />
                         </Button>
-                        {canU && <Button size="sm" variant="ghost" onClick={() => openEdit(s)}><Pencil className="h-3.5 w-3.5" /></Button>}
-                        {canD && <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                        {canU && hasAccess && <Button size="sm" variant="ghost" onClick={() => openEdit(s)}><Pencil className="h-3.5 w-3.5" /></Button>}
+                        {canD && hasAccess && <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50"
                           onClick={() => confirm('Supprimer ce soin ?') && removeSoin.mutate(s.id)}><Trash2 className="h-3.5 w-3.5" /></Button>}
                       </div>
                     </td>
@@ -369,27 +407,43 @@ function SoinsPanel({ consultation, onBack, autoOpen = false }: { consultation: 
 
 function ConsultationsContent() {
   const qc = useQueryClient()
-  const { hasPermission } = useAuthStore()
-  const canC = hasPermission('C'), canU = hasPermission('U'), canD = hasPermission('D')
+  const user = useAuthStore((s) => s.user)
+  const canC = user?.is_superuser || (user?.permission ?? '').includes('C')
+  const canU = user?.is_superuser || (user?.permission ?? '').includes('U')
+  const canD = user?.is_superuser || (user?.permission ?? '').includes('D')
+  const { hasAccess } = useClinicAccess()
   const searchParams = useSearchParams()
   const patientParam = searchParams.get('patient')
   const patientFilter = patientParam ? Number(patientParam) : null
 
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
-  const [open, setOpen] = useState(false)
+  const [search,  setSearch]  = useState('')
+  const [page,    setPage]    = useState(1)
+  const [open,    setOpen]    = useState(false)
+
+  const { data: clinicUsers = [] } = useQuery({
+    queryKey: ['clinic-users'],
+    queryFn: fetchClinicUsers,
+  })
   const [editing, setEditing] = useState<Consultation | null>(null)
   const [viewSoins, setViewSoins] = useState<Consultation | null>(null)
   const [autoOpenSoin, setAutoOpenSoin] = useState(false)
   const [addSoinAfter, setAddSoinAfter] = useState(false)
   const [patientId, setPatientId] = useState<number | null>(null)
+  const [filters, setFilters] = useState<FilterState>(INIT_FILTERS_CONSULT)
+
+  const setFilter    = (k: string, v: string) => { setFilters(f => ({ ...f, [k]: v })); setPage(1) }
+  const resetFilters = () => { setFilters(INIT_FILTERS_CONSULT); setPage(1) }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['consultations', search, page, patientFilter],
-    queryFn: () => fetchConsultations(search, page, patientFilter),
+    queryKey: ['consultations', search, page, patientFilter, filters],
+    queryFn: () => fetchConsultations(search, page, patientFilter, filters),
   })
 
-  const { register, handleSubmit, reset, setValue } = useForm<Partial<Consultation>>()
+  const { register, handleSubmit, reset, setValue, control } = useForm<Partial<Consultation>>()
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1' && canC) { setEditing(null); setPatientId(null); reset(); setOpen(true) }
+  }, [searchParams, canC]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = useMutation({
     mutationFn: (d: Partial<Consultation>) =>
@@ -404,6 +458,10 @@ function ConsultationsContent() {
         setViewSoins(saved)
         setAddSoinAfter(false)
       }
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Erreur lors de l\'enregistrement'
+      alert(msg)
     },
   })
 
@@ -442,6 +500,7 @@ function ConsultationsContent() {
 
   return (
     <div className="space-y-5">
+      <StatCards stats={CONSULT_STATS} />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -449,12 +508,15 @@ function ConsultationsContent() {
           <p className="text-gray-500 text-sm">{data?.count ?? 0} consultation(s) enregistrée(s)</p>
         </div>
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setPatientId(null); reset(); setEditing(null); setAddSoinAfter(false) } }}>
-          {canC && <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Nouvelle consultation</Button>} />}
+          {canC && hasAccess && <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Nouvelle consultation</Button>} />}
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>{editing ? 'Modifier la consultation' : 'Nouvelle consultation'}</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleSubmit((d) => save.mutate(d))} className="space-y-4">
+            <form onSubmit={handleSubmit(
+              (d) => save.mutate(d),
+              (errors) => alert('Champs invalides : ' + Object.keys(errors).join(', '))
+            )} className="space-y-4">
               <div>
                 <Label>Patient *</Label>
                 <PatientSelect
@@ -465,11 +527,32 @@ function ConsultationsContent() {
               </div>
               <div>
                 <Label>Date *</Label>
-                <Input type="datetime-local" {...register('date', { required: true })} />
+                <Controller
+                  control={control}
+                  name="date"
+                  rules={{ required: true }}
+                  render={({ field }) => (
+                    <DateTimeInput
+                      name={field.name}
+                      value={field.value ?? ''}
+                      onChange={(e) => field.onChange(e.target.value)}
+                      onBlur={field.onBlur}
+                    />
+                  )}
+                />
               </div>
               <div>
                 <Label>Motif</Label>
                 <Input {...register('motif')} placeholder="Raison de la consultation..." />
+              </div>
+              <div>
+                <Label>Médecin traitant</Label>
+                <select {...register('medecin')} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm">
+                  <option value="">— Aucun médecin —</option>
+                  {clinicUsers.filter(u => u.is_active).map(u => (
+                    <option key={u.id} value={u.id}>{u.full_name} {u.group ? `(${u.group})` : ''}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <Label>Diagnostic</Label>
@@ -515,7 +598,7 @@ function ConsultationsContent() {
                 )}
                 <div className="flex gap-3">
                   <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-                  <Button type="submit" disabled={save.isPending || !patientId}>
+                  <Button type="submit" disabled={!hasAccess || save.isPending || !patientId}>
                     {save.isPending ? 'Enregistrement...' : 'Enregistrer'}
                   </Button>
                 </div>
@@ -525,14 +608,24 @@ function ConsultationsContent() {
         </Dialog>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-        <Input
-          placeholder="Rechercher par patient, motif, diagnostic..."
-          className="pl-10"
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+      {/* Search + Filtres */}
+      <div className="space-y-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input
+            placeholder="Rechercher par patient, motif, diagnostic..."
+            className="pl-10"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+          />
+        </div>
+        <FilterBar
+          filters={filters}
+          onChange={setFilter}
+          onReset={resetFilters}
+          extras={[
+            { key: 'statut', label: 'Statut', options: STATUTS_CONSULT.map(s => ({ value: s.value, label: s.label })) },
+          ]}
         />
       </div>
 
@@ -567,7 +660,7 @@ function ConsultationsContent() {
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <User className="h-4 w-4 text-gray-400" />
+                        <UserIcon className="h-4 w-4 text-gray-400" />
                         <span className="text-sm font-medium text-gray-800">{c.patient_nom}</span>
                       </div>
                     </td>
@@ -587,8 +680,8 @@ function ConsultationsContent() {
                         <Button size="sm" variant="ghost" title="Voir les soins" onClick={() => setViewSoins(c)}>
                           <Heart className="h-3.5 w-3.5 text-rose-400" />
                         </Button>
-                        {canU && <Button size="sm" variant="ghost" onClick={() => openEdit(c)}><Pencil className="h-3.5 w-3.5" /></Button>}
-                        {canD && <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                        {canU && hasAccess && <Button size="sm" variant="ghost" onClick={() => openEdit(c)}><Pencil className="h-3.5 w-3.5" /></Button>}
+                        {canD && hasAccess && <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50"
                           onClick={() => confirm('Supprimer cette consultation ?') && remove.mutate(c.id)}><Trash2 className="h-3.5 w-3.5" /></Button>}
                       </div>
                     </td>
@@ -600,20 +693,12 @@ function ConsultationsContent() {
         </CardContent>
       </Card>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-500">Page {page} / {totalPages}</p>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(p => p - 1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button size="sm" variant="outline" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        count={data?.count}
+        onPageChange={setPage}
+      />
     </div>
   )
 }

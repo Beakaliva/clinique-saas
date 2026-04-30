@@ -2,21 +2,33 @@
 
 import { useState, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useForm, useFieldArray } from 'react-hook-form'
+import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import api from '@/lib/api'
-import type { DossierMedical, Antecedent, Ordonnance, Soin, Consultation, PaginatedResponse } from '@/types'
+import { useAuthStore } from '@/store/auth.store'
+import type { DossierMedical, Antecedent, Ordonnance, Soin, Consultation, PaginatedResponse, User } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DateTimeInput } from '@/components/ui/datetime-input'
+import { DateInput } from '@/components/ui/date-input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import PatientSelect from '@/components/ui/patient-select'
 import { useRouter } from 'next/navigation'
 import {
-  Search, FolderOpen, User, ArrowLeft, Pencil, Trash2, Plus,
+  Search, FolderOpen, User as UserIcon, ArrowLeft, Pencil, Trash2, Plus,
   Droplets, AlertTriangle, Pill, FileText, ClipboardList, ScrollText,
   Heart, ExternalLink, ChevronRight, Stethoscope, PlusCircle, XCircle as XCircleIcon,
+  Users,
 } from 'lucide-react'
+import { Pagination } from '@/components/ui/pagination'
+import { useClinicAccess } from '@/hooks/use-clinic-access'
+import { StatCards, type StatDef } from '@/components/ui/stat-cards'
+
+const DOSSIERS_STATS: StatDef[] = [
+  { label: 'Total dossiers', endpoint: '/dossiers/', icon: FolderOpen, color: 'bg-indigo-50 text-indigo-600' },
+  { label: 'Patients',       endpoint: '/patients/', icon: Users,       color: 'bg-blue-50 text-blue-600' },
+]
 
 // ── Constantes ────────────────────────────────────────────────────────────
 
@@ -35,8 +47,8 @@ function typeStyle(type: string) {
 
 // ── Fetchers ──────────────────────────────────────────────────────────────
 
-function fetchDossiers(search: string) {
-  return api.get<PaginatedResponse<DossierMedical>>('/dossiers/', { params: { search, page_size: 50 } }).then(r => r.data.results)
+function fetchDossiers(search: string, page: number) {
+  return api.get<PaginatedResponse<DossierMedical>>('/dossiers/', { params: { search, page } }).then(r => r.data)
 }
 
 function fetchDossierByPatient(patientId: number) {
@@ -57,8 +69,8 @@ function fetchConsultationsPatient(patientId: number) {
 
 // ── Vue dossier d'un patient ──────────────────────────────────────────────
 
-interface ConsultFormData { date: string; motif: string; statut: string; notes: string }
-interface SoinFormData { type_soin: string; date: string; statut: string; description: string }
+interface ConsultFormData { date: string; motif: string; statut: string; notes: string; medecin?: number | '' }
+interface SoinFormData { type_soin: string; date: string; statut: string; description: string; consultation?: number | ''; actes: { acte: string; qte: number; prix: number }[] }
 interface OrdoFormData { date: string; notes: string; lignes: { medicament: string; posologie: string; duree: string; quantite: number }[] }
 
 const STATUTS_CONSULT = [
@@ -77,6 +89,7 @@ const STATUTS_SOIN = [
 function DossierView({ patientId, patientNom, onBack }: { patientId: number; patientNom: string; onBack: () => void }) {
   const qc = useQueryClient()
   const router = useRouter()
+  const { hasAccess } = useClinicAccess()
   const [openAntecedent, setOpenAntecedent] = useState(false)
   const [editingAnt, setEditingAnt] = useState<Antecedent | null>(null)
   const [editingDossier, setEditingDossier] = useState(false)
@@ -102,6 +115,11 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
   const { data: consultations = [] } = useQuery({
     queryKey: ['consultations-patient', patientId],
     queryFn: () => fetchConsultationsPatient(patientId),
+  })
+
+  const { data: clinicUsers = [] } = useQuery({
+    queryKey: ['clinic-users'],
+    queryFn: () => api.get<{ results: User[] }>('/users/').then(r => r.data.results ?? []),
   })
 
   // Formulaire dossier principal
@@ -153,16 +171,27 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
 
   // ── Formulaires inline ────────────────────────────────────────────────────
 
-  const consultForm = useForm<ConsultFormData>({ defaultValues: { statut: 'en_attente' } })
+  const consultForm = useForm<ConsultFormData>({ defaultValues: { statut: 'en_attente', medecin: '' } })
   const saveConsult = useMutation({
-    mutationFn: (d: ConsultFormData) => api.post<Consultation>('/consultations/', { ...d, patient: patientId }).then(r => r.data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['consultations-patient', patientId] }); setOpenConsult(false); consultForm.reset({ statut: 'en_attente' }) },
+    mutationFn: (d: ConsultFormData) => {
+      const payload: Record<string, unknown> = { ...d, patient: patientId }
+      if (!d.medecin) delete payload.medecin
+      return api.post<Consultation>('/consultations/', payload).then(r => r.data)
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['consultations-patient', patientId] }); setOpenConsult(false); consultForm.reset({ statut: 'en_attente', medecin: '' }) },
   })
 
-  const soinForm = useForm<SoinFormData>({ defaultValues: { statut: 'planifie' } })
+  const soinForm = useForm<SoinFormData>({ defaultValues: { statut: 'planifie', consultation: '', actes: [] } })
+  const { fields: soinActes, append: appendActe, remove: removeActe } = useFieldArray({ control: soinForm.control, name: 'actes' })
   const saveSoin = useMutation({
-    mutationFn: (d: SoinFormData) => api.post<Soin>('/soins/', { ...d, patient: patientId }).then(r => r.data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['soins-patient', patientId] }); setOpenSoin(false); soinForm.reset({ statut: 'planifie' }) },
+    mutationFn: async (d: SoinFormData) => {
+      const payload: Record<string, unknown> = { type_soin: d.type_soin, date: d.date, statut: d.statut, description: d.description, patient: patientId }
+      if (d.consultation) payload.consultation = d.consultation
+      const soin = await api.post<Soin>('/soins/', payload).then(r => r.data)
+      if (d.actes.length > 0) await Promise.all(d.actes.map(a => api.post(`/soins/${soin.id}/actes/`, a)))
+      return soin
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['soins-patient', patientId] }); setOpenSoin(false); soinForm.reset({ statut: 'planifie', consultation: '', actes: [] }) },
   })
 
   const ordoForm = useForm<OrdoFormData>({ defaultValues: { lignes: [] } })
@@ -209,7 +238,7 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
             <div><Label>Notes</Label><textarea {...dossierForm.register('notes')} rows={2} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none" /></div>
             <div className="flex gap-3 justify-end">
               <Button type="button" variant="outline" onClick={() => setEditingDossier(false)}>Annuler</Button>
-              <Button type="submit" disabled={saveDossier.isPending}>{saveDossier.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
+              <Button type="submit" disabled={!hasAccess || saveDossier.isPending}>{saveDossier.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
             </div>
           </form>
         </DialogContent>
@@ -259,12 +288,24 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
             </CardTitle>
             <div className="flex items-center gap-2">
               <Dialog open={openConsult} onOpenChange={v => { setOpenConsult(v); if (!v) consultForm.reset({ statut: 'en_attente' }) }}>
-                <DialogTrigger render={<Button size="sm" variant="ghost" className="flex items-center gap-1 text-indigo-600 hover:bg-indigo-50"><PlusCircle className="h-3.5 w-3.5" /> Ajouter</Button>} />
+                <DialogTrigger render={<Button size="sm" variant="ghost" className="flex items-center gap-1 text-indigo-600 hover:bg-indigo-50" disabled={!hasAccess}><PlusCircle className="h-3.5 w-3.5" /> Ajouter</Button>} />
                 <DialogContent className="max-w-md">
                   <DialogHeader><DialogTitle>Nouvelle consultation — {patientNom}</DialogTitle></DialogHeader>
                   <form onSubmit={consultForm.handleSubmit(d => saveConsult.mutate(d))} className="space-y-4">
-                    <div><Label>Date *</Label><Input type="datetime-local" {...consultForm.register('date', { required: true })} /></div>
+                    <div><Label>Date *</Label><Controller control={consultForm.control} name="date" rules={{ required: true }} render={({ field }) => <DateTimeInput name={field.name} value={field.value ?? ''} onChange={(e) => field.onChange(e.target.value)} onBlur={field.onBlur} />} /></div>
                     <div><Label>Motif</Label><Input {...consultForm.register('motif')} placeholder="Raison de la consultation..." /></div>
+                    {clinicUsers.length > 0 && (
+                      <div>
+                        <Label>Médecin traitant</Label>
+                        <select {...consultForm.register('medecin', { setValueAs: v => v === '' ? '' : Number(v) })}
+                          className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm">
+                          <option value="">— Aucun médecin —</option>
+                          {clinicUsers.filter(u => u.is_active).map(u => (
+                            <option key={u.id} value={u.id}>{u.full_name} {u.group ? `(${u.group})` : ''}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     <div><Label>Statut</Label>
                       <select {...consultForm.register('statut')} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm">
                         {STATUTS_CONSULT.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -274,7 +315,7 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
                     {saveConsult.isError && <p className="text-xs text-red-500">Erreur lors de l'enregistrement.</p>}
                     <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">
                       <Button type="button" variant="outline" onClick={() => setOpenConsult(false)}>Annuler</Button>
-                      <Button type="submit" disabled={saveConsult.isPending}>{saveConsult.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
+                      <Button type="submit" disabled={!hasAccess || saveConsult.isPending}>{saveConsult.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
                     </div>
                   </form>
                 </DialogContent>
@@ -300,7 +341,7 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
                       <p className="text-sm font-medium text-gray-800 truncate">{c.motif || '—'}</p>
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         <span className="text-xs text-gray-400">{new Date(c.date).toLocaleDateString('fr-FR')}</span>
-                        {c.medecin_nom && <span className="text-xs text-gray-400">· Dr {c.medecin_nom}</span>}
+                        {c.medecin_nom && <span className="text-xs text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full">Dr {c.medecin_nom}</span>}
                         {c.diagnostic && <span className="text-xs text-gray-500 truncate max-w-[120px]">{c.diagnostic}</span>}
                       </div>
                     </div>
@@ -326,22 +367,66 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
             </CardTitle>
             <div className="flex items-center gap-2">
               <Dialog open={openSoin} onOpenChange={v => { setOpenSoin(v); if (!v) soinForm.reset({ statut: 'planifie' }) }}>
-                <DialogTrigger render={<Button size="sm" variant="ghost" className="flex items-center gap-1 text-rose-600 hover:bg-rose-50"><PlusCircle className="h-3.5 w-3.5" /> Ajouter</Button>} />
+                <DialogTrigger render={<Button size="sm" variant="ghost" className="flex items-center gap-1 text-rose-600 hover:bg-rose-50" disabled={!hasAccess}><PlusCircle className="h-3.5 w-3.5" /> Ajouter</Button>} />
                 <DialogContent className="max-w-md">
                   <DialogHeader><DialogTitle>Nouveau soin — {patientNom}</DialogTitle></DialogHeader>
                   <form onSubmit={soinForm.handleSubmit(d => saveSoin.mutate(d))} className="space-y-4">
+                    {consultations.length > 0 && (
+                      <div>
+                        <Label>Consultation liée <span className="text-gray-400 font-normal">(optionnel)</span></Label>
+                        <select {...soinForm.register('consultation', { setValueAs: v => v === '' ? '' : Number(v) })}
+                          className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm">
+                          <option value="">— Aucune consultation —</option>
+                          {consultations.map(c => (
+                            <option key={c.id} value={c.id}>
+                              {new Date(c.date).toLocaleDateString('fr-FR')} — {c.motif || 'Sans motif'} ({c.statut_label})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     <div><Label>Type de soin *</Label><Input {...soinForm.register('type_soin', { required: true })} placeholder="Détartrage, Perfusion..." /></div>
-                    <div><Label>Date *</Label><Input type="date" {...soinForm.register('date', { required: true })} /></div>
+                    <div><Label>Date *</Label><Controller control={soinForm.control} name="date" rules={{ required: true }} render={({ field }) => <DateInput name={field.name} value={field.value ?? ''} onChange={(e) => field.onChange(e.target.value)} onBlur={field.onBlur} />} /></div>
                     <div><Label>Description</Label><textarea {...soinForm.register('description')} rows={2} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none" /></div>
                     <div><Label>Statut</Label>
                       <select {...soinForm.register('statut')} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm">
                         {STATUTS_SOIN.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                       </select>
                     </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <Label>Actes réalisés</Label>
+                        <button type="button" onClick={() => appendActe({ acte: '', qte: 1, prix: 0 })}
+                          className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800">
+                          <PlusCircle className="h-3.5 w-3.5" /> Ajouter un acte
+                        </button>
+                      </div>
+                      {soinActes.length === 0 ? (
+                        <p className="text-xs text-gray-400 text-center py-2 border border-dashed border-gray-200 rounded-lg">
+                          Aucun acte — cliquez sur "Ajouter un acte"
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-[1fr_50px_80px_24px] gap-2 text-xs font-semibold text-gray-500 px-1">
+                            <span>Acte</span><span>Qté</span><span>Prix</span><span></span>
+                          </div>
+                          {soinActes.map((f, i) => (
+                            <div key={f.id} className="grid grid-cols-[1fr_50px_80px_24px] gap-2 items-center">
+                              <Input {...soinForm.register(`actes.${i}.acte`)} placeholder="Pansement..." className="h-7 text-xs" />
+                              <Input type="number" {...soinForm.register(`actes.${i}.qte`, { valueAsNumber: true })} min={1} className="h-7 text-xs" />
+                              <Input type="number" {...soinForm.register(`actes.${i}.prix`, { valueAsNumber: true })} min={0} placeholder="GNF" className="h-7 text-xs" />
+                              <button type="button" onClick={() => removeActe(i)} className="text-red-400 hover:text-red-600">
+                                <XCircleIcon className="h-4 w-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     {saveSoin.isError && <p className="text-xs text-red-500">Erreur lors de l'enregistrement.</p>}
                     <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">
                       <Button type="button" variant="outline" onClick={() => setOpenSoin(false)}>Annuler</Button>
-                      <Button type="submit" disabled={saveSoin.isPending}>{saveSoin.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
+                      <Button type="submit" disabled={!hasAccess || saveSoin.isPending}>{saveSoin.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
                     </div>
                   </form>
                 </DialogContent>
@@ -363,6 +448,7 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
                       <p className="text-sm font-medium text-gray-800">{s.type_soin || 'Soin'}</p>
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         <span className="text-xs text-gray-400">{new Date(s.date).toLocaleDateString('fr-FR')}</span>
+                        {s.consultation_ref && <span className="text-xs text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full">Consult. : {s.consultation_ref.motif || '—'}</span>}
                         {s.actes.length > 0 && <span className="text-xs text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-full">{s.actes.length} acte{s.actes.length > 1 ? 's' : ''}</span>}
                         {Number(s.montant_total) > 0 && <span className="text-xs text-gray-500">{Number(s.montant_total).toLocaleString('fr-FR')} GNF</span>}
                       </div>
@@ -398,12 +484,12 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
           </CardTitle>
           <div className="flex items-center gap-2">
             <Dialog open={openOrdo} onOpenChange={v => { setOpenOrdo(v); if (!v) ordoForm.reset({ lignes: [] }) }}>
-              <DialogTrigger render={<Button size="sm" variant="ghost" className="flex items-center gap-1 text-blue-600 hover:bg-blue-50"><PlusCircle className="h-3.5 w-3.5" /> Ajouter</Button>} />
+              <DialogTrigger render={<Button size="sm" variant="ghost" className="flex items-center gap-1 text-blue-600 hover:bg-blue-50" disabled={!hasAccess}><PlusCircle className="h-3.5 w-3.5" /> Ajouter</Button>} />
               <DialogContent className="max-w-2xl">
                 <DialogHeader><DialogTitle>Nouvelle ordonnance — {patientNom}</DialogTitle></DialogHeader>
                 <form onSubmit={ordoForm.handleSubmit(d => saveOrdo.mutate(d))}>
                   <div className="max-h-[60vh] overflow-y-auto space-y-4 pr-1">
-                    <div><Label>Date *</Label><Input type="date" {...ordoForm.register('date', { required: true })} /></div>
+                    <div><Label>Date *</Label><Controller control={ordoForm.control} name="date" rules={{ required: true }} render={({ field }) => <DateInput name={field.name} value={field.value ?? ''} onChange={(e) => field.onChange(e.target.value)} onBlur={field.onBlur} />} /></div>
                     <div>
                       <div className="flex items-center justify-between mb-2">
                         <Label>Médicaments</Label>
@@ -439,7 +525,7 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
                   {saveOrdo.isError && <p className="text-xs text-red-500 mt-2">Erreur lors de l'enregistrement.</p>}
                   <div className="flex gap-3 justify-end pt-3 border-t border-gray-100 mt-3">
                     <Button type="button" variant="outline" onClick={() => setOpenOrdo(false)}>Annuler</Button>
-                    <Button type="submit" disabled={saveOrdo.isPending}>{saveOrdo.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
+                    <Button type="submit" disabled={!hasAccess || saveOrdo.isPending}>{saveOrdo.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
                   </div>
                 </form>
               </DialogContent>
@@ -492,7 +578,7 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
             Antécédents ({dossier.liste_antecedents.length})
           </CardTitle>
           <Dialog open={openAntecedent} onOpenChange={(v) => { setOpenAntecedent(v); if (!v) { antForm.reset(); setEditingAnt(null) } }}>
-            <DialogTrigger render={<Button size="sm" onClick={openNewAnt} className="flex items-center gap-1"><Plus className="h-3.5 w-3.5" /> Ajouter</Button>} />
+            <DialogTrigger render={<Button size="sm" onClick={openNewAnt} className="flex items-center gap-1" disabled={!hasAccess}><Plus className="h-3.5 w-3.5" /> Ajouter</Button>} />
             <DialogContent className="max-w-md">
               <DialogHeader><DialogTitle>{editingAnt ? 'Modifier l\'antécédent' : 'Nouvel antécédent'}</DialogTitle></DialogHeader>
               <form onSubmit={antForm.handleSubmit(d => saveAnt.mutate(d))} className="space-y-4">
@@ -503,10 +589,10 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
                   </select>
                 </div>
                 <div><Label>Description *</Label><textarea {...antForm.register('description', { required: true })} rows={3} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none" placeholder="Décrire l'antécédent..." /></div>
-                <div><Label>Date (approximative)</Label><Input type="date" {...antForm.register('date')} /></div>
+                <div><Label>Date (approximative)</Label><Controller control={antForm.control} name="date" render={({ field }) => <DateInput name={field.name} value={field.value ?? ''} onChange={(e) => field.onChange(e.target.value)} onBlur={field.onBlur} />} /></div>
                 <div className="flex gap-3 justify-end">
                   <Button type="button" variant="outline" onClick={() => setOpenAntecedent(false)}>Annuler</Button>
-                  <Button type="submit" disabled={saveAnt.isPending}>{saveAnt.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
+                  <Button type="submit" disabled={!hasAccess || saveAnt.isPending}>{saveAnt.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
                 </div>
               </form>
             </DialogContent>
@@ -535,7 +621,7 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
                       <div className="flex items-center gap-1 justify-end">
                         <Button size="sm" variant="ghost" onClick={() => openEditAnt(a)}><Pencil className="h-3.5 w-3.5" /></Button>
                         <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-50"
-                          onClick={() => confirm('Supprimer ?') && removeAnt.mutate(a.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                          disabled={!hasAccess} onClick={() => confirm('Supprimer ?') && removeAnt.mutate(a.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
                       </div>
                     </td>
                   </tr>
@@ -553,13 +639,17 @@ function DossierView({ patientId, patientNom, onBack }: { patientId: number; pat
 
 function DossiersContent() {
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [selectedPatient, setSelectedPatient] = useState<{ id: number; nom: string } | null>(null)
   const [searchPatient, setSearchPatient] = useState<number | null>(null)
 
-  const { data: dossiers = [], isLoading } = useQuery({
-    queryKey: ['dossiers', search],
-    queryFn: () => fetchDossiers(search),
+  const { data, isLoading } = useQuery({
+    queryKey: ['dossiers', search, page],
+    queryFn: () => fetchDossiers(search, page),
   })
+
+  const dossiers = data?.results ?? []
+  const totalPages = data ? Math.ceil(data.count / 25) : 1
 
   if (selectedPatient) {
     return <DossierView patientId={selectedPatient.id} patientNom={selectedPatient.nom} onBack={() => setSelectedPatient(null)} />
@@ -567,11 +657,12 @@ function DossiersContent() {
 
   return (
     <div className="space-y-5">
+      <StatCards stats={DOSSIERS_STATS} />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Dossiers médicaux</h1>
-          <p className="text-gray-500 text-sm">{dossiers.length} dossier(s) ouvert(s)</p>
+          <p className="text-gray-500 text-sm">{data?.count ?? 0} dossier(s) ouvert(s)</p>
         </div>
         {/* Accès rapide par patient */}
         <div className="w-72">
@@ -595,7 +686,7 @@ function DossiersContent() {
           placeholder="Rechercher par nom de patient..."
           className="pl-10"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
         />
       </div>
 
@@ -628,7 +719,7 @@ function DossiersContent() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center text-purple-600 font-bold text-xs">
-                          <User className="h-4 w-4" />
+                          <UserIcon className="h-4 w-4" />
                         </div>
                         <span className="text-sm font-medium text-gray-800">{d.patient_nom}</span>
                       </div>
@@ -665,6 +756,13 @@ function DossiersContent() {
           )}
         </CardContent>
       </Card>
+
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        count={data?.count}
+        onPageChange={setPage}
+      />
     </div>
   )
 }

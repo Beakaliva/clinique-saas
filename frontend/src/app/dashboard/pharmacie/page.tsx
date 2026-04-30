@@ -3,6 +3,7 @@
 import { useState, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
+import { useClinicAccess } from '@/hooks/use-clinic-access'
 import api from '@/lib/api'
 import type { Medicament, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
@@ -10,7 +11,15 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Plus, Search, Pill, ChevronLeft, ChevronRight, Pencil, Trash2, AlertTriangle } from 'lucide-react'
+import { Pagination } from '@/components/ui/pagination'
+import { Plus, Search, Pill, Pencil, Trash2, AlertTriangle, PackageX, Package } from 'lucide-react'
+import { StatCards, type StatDef } from '@/components/ui/stat-cards'
+
+const PHARMACIE_STATS: StatDef[] = [
+  { label: 'Total médicaments', endpoint: '/medicaments/', icon: Pill,        color: 'bg-teal-50 text-teal-600' },
+  { label: 'En stock',          endpoint: '/medicaments/', params: { en_rupture: 'false' }, icon: Package,    color: 'bg-green-50 text-green-600' },
+  { label: 'En rupture',        endpoint: '/medicaments/', params: { en_rupture: 'true' },  icon: PackageX,   color: 'bg-red-50 text-red-600' },
+]
 
 const FORMES = [
   { value: 'comprimes',  label: 'Comprimés' },
@@ -34,7 +43,8 @@ interface FormData {
 
 function PharmacieContent() {
   const qc = useQueryClient()
-  const [search, setSearch] = useState('')
+  const { hasAccess } = useClinicAccess()
+    const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Medicament | null>(null)
@@ -71,6 +81,7 @@ function PharmacieContent() {
 
   return (
     <div className="space-y-5">
+      <StatCards stats={PHARMACIE_STATS} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Pharmacie</h1>
@@ -103,7 +114,7 @@ function PharmacieContent() {
               </div>
               <div className="flex gap-3 justify-end">
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-                <Button type="submit" disabled={save.isPending}>{save.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
+                <Button type="submit" disabled={!hasAccess || save.isPending}>{save.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
               </div>
             </form>
           </DialogContent>
@@ -159,15 +170,12 @@ function PharmacieContent() {
         </CardContent>
       </Card>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-500">Page {page} / {totalPages}</p>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(p => p - 1)}><ChevronLeft className="h-4 w-4" /></Button>
-            <Button size="sm" variant="outline" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}><ChevronRight className="h-4 w-4" /></Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        count={data?.count}
+        onPageChange={setPage}
+      />
     </div>
   )
 }

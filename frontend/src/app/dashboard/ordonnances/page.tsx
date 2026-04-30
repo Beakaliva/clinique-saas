@@ -1,18 +1,33 @@
 'use client'
 
-import { useState, Suspense } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useForm, useFieldArray } from 'react-hook-form'
+import { useForm, useFieldArray, Controller } from 'react-hook-form'
+import { useClinicAccess } from '@/hooks/use-clinic-access'
 import api from '@/lib/api'
+import { useAuthStore } from '@/store/auth.store'
 import type { Ordonnance, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DateInput } from '@/components/ui/date-input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import PatientSelect from '@/components/ui/patient-select'
 import { useSearchParams } from 'next/navigation'
-import { Plus, Search, ClipboardList, User, ChevronLeft, ChevronRight, Pencil, Trash2, PlusCircle, XCircle } from 'lucide-react'
+import { FilterBar, type FilterState } from '@/components/ui/filter-bar'
+
+const INIT_FILTERS: FilterState = { dateDebut: '', dateFin: '', mois: '', annee: '' }
+import { Pagination } from '@/components/ui/pagination'
+import { Plus, Search, ClipboardList, User, Pencil, Trash2, PlusCircle, XCircle, CalendarDays, Printer } from 'lucide-react'
+import { printOrdonnance } from '@/lib/print'
+import { StatCards, type StatDef } from '@/components/ui/stat-cards'
+
+const now = new Date()
+const ORDONNANCES_STATS: StatDef[] = [
+  { label: 'Total ordonnances', endpoint: '/ordonnances/', icon: ClipboardList, color: 'bg-teal-50 text-teal-600' },
+  { label: 'Ce mois',           endpoint: '/ordonnances/', params: { mois: now.getMonth() + 1, annee: now.getFullYear() }, icon: CalendarDays, color: 'bg-blue-50 text-blue-600' },
+]
 
 interface FormData {
   date: string
@@ -24,22 +39,41 @@ function OrdonnancesContent() {
   const qc = useQueryClient()
   const searchParams = useSearchParams()
   const patientFilter = searchParams.get('patient') ? Number(searchParams.get('patient')) : null
+  const user   = useAuthStore((s) => s.user)
+  const clinic = useAuthStore((s) => s.clinic)
+  const canC = user?.is_superuser || (user?.permission ?? '').includes('C')
+  const { hasAccess } = useClinicAccess()
 
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
-  const [open, setOpen] = useState(false)
+  const [search,  setSearch]  = useState('')
+  const [page,    setPage]    = useState(1)
+  const [open,    setOpen]    = useState(false)
   const [editing, setEditing] = useState<Ordonnance | null>(null)
   const [patientId, setPatientId] = useState<number | null>(null)
+  const [filters, setFilters] = useState<FilterState>(INIT_FILTERS)
+
+  const setFilter    = (k: string, v: string) => { setFilters(f => ({ ...f, [k]: v })); setPage(1) }
+  const resetFilters = () => { setFilters(INIT_FILTERS); setPage(1) }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['ordonnances', search, page, patientFilter],
+    queryKey: ['ordonnances', search, page, patientFilter, filters],
     queryFn: () => api.get<PaginatedResponse<Ordonnance>>('/ordonnances/', {
-      params: { search, page, ...(patientFilter ? { patient: patientFilter } : {}) }
+      params: {
+        search, page,
+        ...(patientFilter      ? { patient:     patientFilter }    : {}),
+        ...(filters.dateDebut  ? { date_debut:  filters.dateDebut } : {}),
+        ...(filters.dateFin    ? { date_fin:    filters.dateFin }   : {}),
+        ...(filters.mois       ? { mois:        filters.mois }      : {}),
+        ...(filters.annee      ? { annee:       filters.annee }     : {}),
+      }
     }).then(r => r.data),
   })
 
   const { register, handleSubmit, reset, setValue, control } = useForm<FormData>({ defaultValues: { lignes: [] } })
   const { fields, append, remove } = useFieldArray({ control, name: 'lignes' })
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1' && canC) { setEditing(null); setPatientId(null); reset({ lignes: [] }); setOpen(true) }
+  }, [searchParams, canC]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = useMutation({
     mutationFn: async (d: FormData) => {
@@ -74,6 +108,7 @@ function OrdonnancesContent() {
 
   return (
     <div className="space-y-5">
+      <StatCards stats={ORDONNANCES_STATS} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Ordonnances</h1>
@@ -86,7 +121,7 @@ function OrdonnancesContent() {
             <form onSubmit={handleSubmit(d => save.mutate(d))}>
               <div className="max-h-[65vh] overflow-y-auto space-y-4 pr-1">
                 <div><Label>Patient *</Label><PatientSelect value={patientId} onChange={setPatientId} required /></div>
-                <div><Label>Date *</Label><Input type="date" {...register('date', { required: true })} /></div>
+                <div><Label>Date *</Label><Controller control={control} name="date" rules={{ required: true }} render={({ field }) => <DateInput name={field.name} value={field.value ?? ''} onChange={(e) => field.onChange(e.target.value)} onBlur={field.onBlur} />} /></div>
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <Label>Médicaments</Label>
@@ -127,16 +162,19 @@ function OrdonnancesContent() {
               )}
               <div className="flex gap-3 justify-end pt-3 border-t border-gray-100 mt-3">
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-                <Button type="submit" disabled={save.isPending || !patientId}>{save.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
+                <Button type="submit" disabled={!hasAccess || save.isPending || !patientId}>{save.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
               </div>
             </form>
           </DialogContent>
         </Dialog>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-        <Input placeholder="Rechercher par patient..." className="pl-10" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
+      <div className="space-y-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input placeholder="Rechercher par patient..." className="pl-10" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
+        </div>
+        <FilterBar filters={filters} onChange={setFilter} onReset={resetFilters} />
       </div>
 
       <Card className="border-0 shadow-sm overflow-hidden">
@@ -169,6 +207,10 @@ function OrdonnancesContent() {
                       <td className="px-4 py-3 text-sm text-gray-400 italic max-w-[200px] truncate">{o.notes || '—'}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 justify-end">
+                          <Button size="sm" variant="ghost" title="Imprimer" className="text-blue-500 hover:bg-blue-50"
+                            onClick={() => printOrdonnance(o, { name: clinic?.name ?? '', telephone: clinic?.telephone, adresse: clinic?.adresse, email: clinic?.email, type_display: clinic?.type_display, logo: clinic?.logo })}>
+                            <Printer className="h-3.5 w-3.5" />
+                          </Button>
                           <Button size="sm" variant="ghost" onClick={() => openEdit(o)}><Pencil className="h-3.5 w-3.5" /></Button>
                           <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-50" onClick={() => confirm('Supprimer ?') && del.mutate(o.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
                         </div>
@@ -181,15 +223,12 @@ function OrdonnancesContent() {
         </CardContent>
       </Card>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-500">Page {page} / {totalPages}</p>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(p => p - 1)}><ChevronLeft className="h-4 w-4" /></Button>
-            <Button size="sm" variant="outline" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}><ChevronRight className="h-4 w-4" /></Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        count={data?.count}
+        onPageChange={setPage}
+      />
     </div>
   )
 }

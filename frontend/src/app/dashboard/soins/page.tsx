@@ -2,18 +2,32 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useForm, useFieldArray } from 'react-hook-form'
+import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { useClinicAccess } from '@/hooks/use-clinic-access'
 import api from '@/lib/api'
 import { useAuthStore } from '@/store/auth.store'
 import type { Soin, SoinActe, Facture, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DateTimeInput } from '@/components/ui/datetime-input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import PatientSelect from '@/components/ui/patient-select'
-import { Plus, Search, Heart, User, ChevronLeft, ChevronRight, Pencil, Trash2, PlusCircle, XCircle, ArrowLeft, Receipt } from 'lucide-react'
+import { FilterBar, type FilterState } from '@/components/ui/filter-bar'
+import { Pagination } from '@/components/ui/pagination'
+import { Plus, Search, Heart, User, Pencil, Trash2, PlusCircle, XCircle, ArrowLeft, Receipt, CheckCircle2, Clock, Activity } from 'lucide-react'
+import { StatCards, type StatDef } from '@/components/ui/stat-cards'
+
+const SOINS_STATS: StatDef[] = [
+  { label: 'Total soins',  endpoint: '/soins/', icon: Heart,         color: 'bg-pink-50 text-pink-600' },
+  { label: 'Planifiés',    endpoint: '/soins/', params: { statut: 'planifie' },  icon: Clock,        color: 'bg-blue-50 text-blue-600' },
+  { label: 'En cours',     endpoint: '/soins/', params: { statut: 'en_cours' },  icon: Activity,     color: 'bg-yellow-50 text-yellow-600' },
+  { label: 'Effectués',    endpoint: '/soins/', params: { statut: 'effectue' },  icon: CheckCircle2, color: 'bg-green-50 text-green-600' },
+]
+
+const INIT_FILTERS: FilterState = { dateDebut: '', dateFin: '', mois: '', annee: '', statut: '' }
 
 const STATUTS = [
   { value: 'planifie',  label: 'Planifié',  color: 'bg-blue-50 text-blue-700' },
@@ -39,10 +53,15 @@ interface FormData {
   actes: { acte: string; qte: number; prix: number }[]
 }
 
-function fetchSoins(search: string, page: number, consultationId?: number | null, patientId?: number | null) {
+function fetchSoins(search: string, page: number, consultationId?: number | null, patientId?: number | null, f?: FilterState) {
   const params: Record<string, unknown> = { search, page }
-  if (consultationId) params.consultation = consultationId
-  if (patientId) params.patient = patientId
+  if (consultationId)   params.consultation = consultationId
+  if (patientId)        params.patient      = patientId
+  if (f?.dateDebut)     params.date_debut   = f.dateDebut
+  if (f?.dateFin)       params.date_fin     = f.dateFin
+  if (f?.mois)          params.mois         = f.mois
+  if (f?.annee)         params.annee        = f.annee
+  if (f?.statut)        params.statut       = f.statut
   return api.get<PaginatedResponse<Soin>>('/soins/', { params }).then(r => r.data)
 }
 
@@ -60,8 +79,11 @@ async function saveActes(soinId: number, actes: FormData['actes'], existingActes
 
 function SoinsContent() {
   const qc = useQueryClient()
-  const { hasPermission } = useAuthStore()
-  const canC = hasPermission('C'), canU = hasPermission('U'), canD = hasPermission('D')
+  const user = useAuthStore((s) => s.user)
+  const canC = user?.is_superuser || (user?.permission ?? '').includes('C')
+  const canU = user?.is_superuser || (user?.permission ?? '').includes('U')
+  const canD = user?.is_superuser || (user?.permission ?? '').includes('D')
+  const { hasAccess } = useClinicAccess()
   const searchParams = useSearchParams()
   const router = useRouter()
   const consultationParam = searchParams.get('consultation')
@@ -69,15 +91,19 @@ function SoinsContent() {
   const patientParam = searchParams.get('patient')
   const patientFilter = patientParam ? Number(patientParam) : null
 
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
-  const [open, setOpen] = useState(false)
+  const [search,  setSearch]  = useState('')
+  const [page,    setPage]    = useState(1)
+  const [open,    setOpen]    = useState(false)
   const [editing, setEditing] = useState<Soin | null>(null)
   const [patientId, setPatientId] = useState<number | null>(null)
+  const [filters, setFilters] = useState<FilterState>(INIT_FILTERS)
+
+  const setFilter    = (k: string, v: string) => { setFilters(f => ({ ...f, [k]: v })); setPage(1) }
+  const resetFilters = () => { setFilters(INIT_FILTERS); setPage(1) }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['soins', search, page, consultationId, patientFilter],
-    queryFn: () => fetchSoins(search, page, consultationId, patientFilter),
+    queryKey: ['soins', search, page, consultationId, patientFilter, filters],
+    queryFn: () => fetchSoins(search, page, consultationId, patientFilter, filters),
   })
 
   const { data: consultationInfo } = useQuery({
@@ -148,6 +174,7 @@ function SoinsContent() {
 
   return (
     <div className="space-y-5">
+      {!consultationId && <StatCards stats={SOINS_STATS} />}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -168,7 +195,7 @@ function SoinsContent() {
           </div>
         </div>
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setPatientId(null); reset({ actes: [] }); setEditing(null) } }}>
-          {canC && <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Nouveau soin</Button>} />}
+          {canC && hasAccess && <DialogTrigger render={<Button onClick={openNew} className="flex items-center gap-2"><Plus className="h-4 w-4" /> Nouveau soin</Button>} />}
           <DialogContent className="max-w-xl">
             <DialogHeader>
               <DialogTitle>{editing ? 'Modifier le soin' : 'Nouveau soin'}</DialogTitle>
@@ -185,7 +212,7 @@ function SoinsContent() {
                 </div>
                 <div>
                   <Label>Date *</Label>
-                  <Input type="datetime-local" {...register('date', { required: true })} />
+                  <Controller control={control} name="date" rules={{ required: true }} render={({ field }) => <DateTimeInput name={field.name} value={field.value ?? ''} onChange={(e) => field.onChange(e.target.value)} onBlur={field.onBlur} />} />
                 </div>
               </div>
               <div>
@@ -240,7 +267,7 @@ function SoinsContent() {
               </div>
               <div className="flex gap-3 justify-end">
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-                <Button type="submit" disabled={save.isPending || !patientId}>
+                <Button type="submit" disabled={!hasAccess || save.isPending || !patientId}>
                   {save.isPending ? 'Enregistrement...' : 'Enregistrer'}
                 </Button>
               </div>
@@ -249,14 +276,24 @@ function SoinsContent() {
         </Dialog>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-        <Input
-          placeholder="Rechercher par patient, type de soin..."
-          className="pl-10"
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+      {/* Search + Filtres */}
+      <div className="space-y-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input
+            placeholder="Rechercher par patient, type de soin..."
+            className="pl-10"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+          />
+        </div>
+        <FilterBar
+          filters={filters}
+          onChange={setFilter}
+          onReset={resetFilters}
+          extras={[
+            { key: 'statut', label: 'Statut', options: STATUTS.map(s => ({ value: s.value, label: s.label })) },
+          ]}
         />
       </div>
 
@@ -319,15 +356,15 @@ function SoinsContent() {
                       <div className="flex items-center gap-1 justify-end">
                         <Button
                           size="sm" variant="ghost"
-                          title={s.facture_id ? 'Voir la facture' : 'Générer la facture'}
+                          title={s.facture_id ? 'Mettre à jour la facture' : 'Générer la facture'}
                           className={s.facture_id ? 'text-green-600 hover:bg-green-50' : 'text-blue-600 hover:bg-blue-50'}
                           onClick={() => facturer.mutate(s.id)}
                           disabled={facturer.isPending && facturer.variables === s.id}
                         >
                           <Receipt className="h-3.5 w-3.5" />
                         </Button>
-                        {canU && <Button size="sm" variant="ghost" onClick={() => openEdit(s)}><Pencil className="h-3.5 w-3.5" /></Button>}
-                        {canD && <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                        {canU && hasAccess && <Button size="sm" variant="ghost" onClick={() => openEdit(s)}><Pencil className="h-3.5 w-3.5" /></Button>}
+                        {canD && hasAccess && <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50"
                           onClick={() => confirm('Supprimer ce soin ?') && remove_soin.mutate(s.id)}><Trash2 className="h-3.5 w-3.5" /></Button>}
                       </div>
                     </td>
@@ -347,7 +384,7 @@ function SoinsContent() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-gray-800">
-              {facturerResult.created ? 'Facture créée' : 'Facture existante'}
+              {facturerResult.created ? 'Facture créée' : 'Facture mise à jour'}
             </p>
             <p className="text-xs text-gray-500">{facturerResult.facture.numero} — {Number(facturerResult.facture.montant_total).toLocaleString('fr-FR')} GNF</p>
           </div>
@@ -360,20 +397,12 @@ function SoinsContent() {
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-500">Page {page} / {totalPages}</p>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(p => p - 1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button size="sm" variant="outline" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        count={data?.count}
+        onPageChange={setPage}
+      />
     </div>
   )
 }

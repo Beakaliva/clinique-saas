@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/auth.store'
 import Sidebar from '@/components/layout/Sidebar'
+import { TrialBanner } from '@/components/ui/trial-banner'
 import { Menu } from 'lucide-react'
 import { Building2, ShieldAlert, ArrowLeft } from 'lucide-react'
 import api from '@/lib/api'
+import { mediaUrl } from '@/lib/media'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -15,18 +17,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const superAdminSnapshot = useAuthStore((s) => s.superAdminSnapshot)
   const exitImpersonation = useAuthStore((s) => s.exitImpersonation)
   const setUser           = useAuthStore((s) => s.setUser)
+  const setClinic         = useAuthStore((s) => s.setClinic)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
     if (!user) { router.replace('/auth/login'); return }
-    // Rafraîchit les données user (modules, permissions) depuis le serveur
-    api.get('/auth/me/').then(r => setUser(r.data)).catch(() => {})
+    // Rafraîchit les données user + clinic (trial, permissions) depuis le serveur
+    api.get('/auth/me/').then(r => {
+      setUser(r.data)
+      if (r.data.clinic) setClinic(r.data.clinic)
+    }).catch(() => {})
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!user) return null
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
+
+      {/* Bannière trial */}
+      <TrialBanner />
 
       {/* Bannière impersonation */}
       {superAdminSnapshot && (
@@ -74,9 +83,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <Menu className="h-5 w-5" />
           </button>
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center shrink-0">
-              <Building2 className="h-4 w-4 text-white" />
-            </div>
+            {mediaUrl(clinic?.logo)
+              ? <img src={mediaUrl(clinic?.logo)!} alt={clinic?.name} className="w-7 h-7 rounded-lg object-contain border border-gray-200 bg-white p-0.5 shrink-0" />
+              : <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center shrink-0"><Building2 className="h-4 w-4 text-white" /></div>
+            }
             <p className="font-semibold text-sm text-gray-800 truncate">{clinic?.name}</p>
           </div>
         </header>

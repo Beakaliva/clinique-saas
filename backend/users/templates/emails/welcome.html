@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bienvenue sur ClinicPro</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:'Segoe UI',Arial,sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">
+
+          <!-- Header logo -->
+          <tr>
+            <td align="center" style="padding-bottom:24px;">
+              <table cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="background:#2563eb;border-radius:12px;padding:10px 14px;vertical-align:middle;">
+                    <span style="color:#ffffff;font-size:20px;font-weight:800;letter-spacing:-0.5px;">Clinic<span style="color:#bfdbfe;">Pro</span></span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Card principale -->
+          <tr>
+            <td style="background:#ffffff;border-radius:20px;padding:36px 32px;box-shadow:0 2px 12px rgba(0,0,0,0.06);">
+
+              <!-- Icône + Titre -->
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="padding-bottom:20px;">
+                    <div style="width:56px;height:56px;background:#eff6ff;border-radius:50%;display:inline-block;text-align:center;line-height:56px;font-size:28px;">🎉</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding-bottom:8px;">
+                    <h1 style="margin:0;font-size:22px;font-weight:800;color:#111827;">Bienvenue, {{ prenom }} !</h1>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding-bottom:28px;">
+                    <p style="margin:0;font-size:14px;color:#6b7280;">Votre clinique <strong style="color:#2563eb;">{{ clinic_name }}</strong> est prête.</p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Séparateur -->
+              <hr style="border:none;border-top:1px solid #f3f4f6;margin:0 0 24px 0;" />
+
+              <!-- Message -->
+              <p style="margin:0 0 16px 0;font-size:14px;color:#374151;line-height:1.6;">
+                Votre compte administrateur a été créé avec succès. Vous pouvez maintenant vous connecter et commencer à gérer votre établissement médical.
+              </p>
+
+              <!-- Infos compte -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:12px;padding:16px;margin-bottom:24px;">
+                <tr>
+                  <td style="padding:4px 0;">
+                    <span style="font-size:12px;color:#9ca3af;">Identifiant (téléphone)</span><br/>
+                    <span style="font-size:14px;font-weight:600;color:#111827;">{{ telephone }}</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 0;border-top:1px solid #e5e7eb;padding-top:10px;margin-top:10px;">
+                    <span style="font-size:12px;color:#9ca3af;">Clinique</span><br/>
+                    <span style="font-size:14px;font-weight:600;color:#111827;">{{ clinic_name }}</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 0;border-top:1px solid #e5e7eb;padding-top:10px;">
+                    <span style="font-size:12px;color:#9ca3af;">Type</span><br/>
+                    <span style="font-size:14px;font-weight:600;color:#111827;">{{ clinic_type }}</span>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Bouton CTA -->
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <a href="{{ dashboard_url }}"
+                      style="display:inline-block;background:#2563eb;color:#ffffff;font-size:14px;font-weight:700;padding:14px 32px;border-radius:12px;text-decoration:none;box-shadow:0 4px 12px rgba(37,99,235,0.3);">
+                      Accéder à mon tableau de bord →
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Modules disponibles -->
+              <p style="margin:28px 0 12px 0;font-size:13px;font-weight:600;color:#374151;">Modules inclus dans votre plan :</p>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  {% for module in modules %}
+                  {% if forloop.counter0|divisibleby:2 %}<tr>{% endif %}
+                  <td width="50%" style="padding:3px 4px;">
+                    <span style="font-size:12px;color:#374151;">✅ {{ module }}</span>
+                  </td>
+                  {% if forloop.counter|divisibleby:2 %}</tr>{% endif %}
+                  {% endfor %}
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center" style="padding:24px 0 8px 0;">
+              <p style="margin:0;font-size:11px;color:#9ca3af;">
+                Cet email a été envoyé automatiquement par ClinicPro.<br/>
+                Si vous n'êtes pas à l'origine de cette inscription, ignorez ce message.
+              </p>
+              <p style="margin:8px 0 0 0;font-size:11px;color:#9ca3af;">
+                © {{ year }} ClinicPro — Système de gestion médicale
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

@@ -2,16 +2,28 @@
 
 import { useState, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useForm } from 'react-hook-form'
+import { useForm, Controller } from 'react-hook-form'
+import { useClinicAccess } from '@/hooks/use-clinic-access'
 import api from '@/lib/api'
 import type { Hospitalisation, PaginatedResponse } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DateTimeInput } from '@/components/ui/datetime-input'
+import { DateInput } from '@/components/ui/date-input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import PatientSelect from '@/components/ui/patient-select'
-import { Plus, Search, BedDouble, User, ChevronLeft, ChevronRight, Pencil, Trash2 } from 'lucide-react'
+import { Pagination } from '@/components/ui/pagination'
+import { Plus, Search, BedDouble, User, Pencil, Trash2, Activity, LogOut, ArrowRightLeft } from 'lucide-react'
+import { StatCards, type StatDef } from '@/components/ui/stat-cards'
+
+const HOSPIT_STATS: StatDef[] = [
+  { label: 'Total',        endpoint: '/hospitalisations/', icon: BedDouble,       color: 'bg-blue-50 text-blue-600' },
+  { label: 'En cours',     endpoint: '/hospitalisations/', params: { statut: 'en_cours' },  icon: Activity,        color: 'bg-green-50 text-green-600' },
+  { label: 'Sortis',       endpoint: '/hospitalisations/', params: { statut: 'sortie' },    icon: LogOut,          color: 'bg-gray-100 text-gray-600' },
+  { label: 'Transférés',   endpoint: '/hospitalisations/', params: { statut: 'transfere' }, icon: ArrowRightLeft,  color: 'bg-orange-50 text-orange-600' },
+]
 
 const STATUTS = [
   { value: 'en_cours',  label: 'En cours',       color: 'bg-blue-50 text-blue-700' },
@@ -32,7 +44,8 @@ interface FormData {
 
 function HospitalisationsContent() {
   const qc = useQueryClient()
-  const [search, setSearch] = useState('')
+  const { hasAccess } = useClinicAccess()
+    const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Hospitalisation | null>(null)
@@ -43,7 +56,7 @@ function HospitalisationsContent() {
     queryFn: () => api.get<PaginatedResponse<Hospitalisation>>('/hospitalisations/', { params: { search, page } }).then(r => r.data),
   })
 
-  const { register, handleSubmit, reset, setValue } = useForm<FormData>({ defaultValues: { statut: 'en_cours' } })
+  const { register, handleSubmit, reset, setValue, control } = useForm<FormData>({ defaultValues: { statut: 'en_cours' } })
 
   const save = useMutation({
     mutationFn: (d: FormData) => {
@@ -78,6 +91,7 @@ function HospitalisationsContent() {
 
   return (
     <div className="space-y-5">
+      <StatCards stats={HOSPIT_STATS} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Hospitalisations</h1>
@@ -99,14 +113,14 @@ function HospitalisationsContent() {
               </div>
               <div><Label>Motif *</Label><textarea {...register('motif', { required: true })} rows={2} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none" placeholder="Motif d'hospitalisation..." /></div>
               <div className="grid grid-cols-2 gap-3">
-                <div><Label>Date d'entrée *</Label><Input type="datetime-local" {...register('date_entree', { required: true })} /></div>
-                <div><Label>Sortie prévue</Label><Input type="date" {...register('date_sortie_prevue')} /></div>
+                <div><Label>Date d'entrée *</Label><Controller control={control} name="date_entree" rules={{ required: true }} render={({ field }) => <DateTimeInput name={field.name} value={field.value ?? ''} onChange={(e) => field.onChange(e.target.value)} onBlur={field.onBlur} />} /></div>
+                <div><Label>Sortie prévue</Label><Controller control={control} name="date_sortie_prevue" render={({ field }) => <DateInput name={field.name} value={field.value ?? ''} onChange={(e) => field.onChange(e.target.value)} onBlur={field.onBlur} />} /></div>
               </div>
-              <div><Label>Date de sortie réelle</Label><Input type="datetime-local" {...register('date_sortie_reelle')} /></div>
+              <div><Label>Date de sortie réelle</Label><Controller control={control} name="date_sortie_reelle" render={({ field }) => <DateTimeInput name={field.name} value={field.value ?? ''} onChange={(e) => field.onChange(e.target.value)} onBlur={field.onBlur} />} /></div>
               <div><Label>Notes / Évolution</Label><textarea {...register('notes')} rows={3} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none" /></div>
               <div className="flex gap-3 justify-end">
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-                <Button type="submit" disabled={save.isPending || !patientId}>{save.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
+                <Button type="submit" disabled={!hasAccess || save.isPending || !patientId}>{save.isPending ? 'Enregistrement...' : 'Enregistrer'}</Button>
               </div>
             </form>
           </DialogContent>
@@ -159,15 +173,12 @@ function HospitalisationsContent() {
         </CardContent>
       </Card>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-500">Page {page} / {totalPages}</p>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(p => p - 1)}><ChevronLeft className="h-4 w-4" /></Button>
-            <Button size="sm" variant="outline" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}><ChevronRight className="h-4 w-4" /></Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        count={data?.count}
+        onPageChange={setPage}
+      />
     </div>
   )
 }

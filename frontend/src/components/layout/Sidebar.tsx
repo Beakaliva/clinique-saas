@@ -9,6 +9,7 @@ import {
   Pill, FlaskConical, Radiation, BedDouble,
   ClipboardList, Receipt, Settings, BarChart3, X, ShieldAlert,
 } from 'lucide-react'
+import { mediaUrl } from '@/lib/media'
 
 const NAV = [
   { href: '/dashboard',                  label: 'Tableau de bord',  icon: LayoutDashboard, module: null },
@@ -53,9 +54,10 @@ export default function Sidebar({ onClose }: Props) {
       {/* Header */}
       <div className="p-4 border-b border-gray-100 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shrink-0">
-            <Building2 className="h-5 w-5 text-white" />
-          </div>
+          {mediaUrl(clinic?.logo)
+            ? <img src={mediaUrl(clinic?.logo)!} alt={clinic?.name} className="w-10 h-10 rounded-xl object-contain border border-gray-200 bg-white p-0.5 shrink-0" />
+            : <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shrink-0"><Building2 className="h-5 w-5 text-white" /></div>
+          }
           <div className="flex-1 overflow-hidden">
             <p className="font-semibold text-sm text-gray-800 truncate">{clinic?.name}</p>
             <p className="text-xs text-gray-400 truncate">{clinic?.type_display}</p>

@@ -2,17 +2,19 @@ from rest_framework import generics, filters, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from config.mixins import ClinicScopedMixin
+from config.mixins import ClinicScopedMixin, DateFilterMixin
 from .models import Patient
 from .serializers import PatientSerializer
 
 
-class PatientListCreateView(ClinicScopedMixin, generics.ListCreateAPIView):
-    queryset         = Patient.objects.all()
-    serializer_class = PatientSerializer
-    search_fields    = ['last_name', 'first_name', 'telephone', 'code_assurance']
-    ordering_fields  = ['last_name', 'first_name', 'date_naissance', 'created_at']
-    ordering         = ['last_name', 'first_name']
+class PatientListCreateView(DateFilterMixin, ClinicScopedMixin, generics.ListCreateAPIView):
+    queryset              = Patient.objects.all()
+    serializer_class      = PatientSerializer
+    search_fields         = ['last_name', 'first_name', 'telephone', 'code_assurance']
+    filterset_fields      = ['sexe', 'est_assure']
+    ordering_fields       = ['last_name', 'first_name', 'date_naissance', 'created_at']
+    ordering              = ['last_name', 'first_name']
+    date_filter_field     = 'created_at'
 
 
 class PatientDetailView(ClinicScopedMixin, generics.RetrieveUpdateDestroyAPIView):

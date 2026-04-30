@@ -7,6 +7,7 @@ from .views import (
     LogoutView,
     MeView,
     ChangePasswordView,
+    AdminResetPasswordView,
     UserListCreateView,
     UserDetailView,
     ClinicUpdateView,
@@ -14,6 +15,7 @@ from .views import (
     SuperAdminClinicDetailView,
     SuperAdminClinicUsersView,
     SuperAdminImpersonateView,
+    SuperAdminSubscriptionView,
     StatsView,
 )
 
@@ -31,8 +33,9 @@ urlpatterns = [
     path("auth/change-password/", ChangePasswordView.as_view(), name="change-password"),
 
     # ── Utilisateurs (scoped à la clinique) ───────────────────────────────
-    path("users/",                UserListCreateView.as_view(), name="user-list"),
-    path("users/<int:pk>/",       UserDetailView.as_view(),     name="user-detail"),
+    path("users/",                         UserListCreateView.as_view(),    name="user-list"),
+    path("users/<int:pk>/",                UserDetailView.as_view(),         name="user-detail"),
+    path("users/<int:pk>/reset-password/", AdminResetPasswordView.as_view(), name="user-reset-password"),
 
     # ── Clinique ──────────────────────────────────────────────────────────
     path("clinic/",               ClinicUpdateView.as_view(),   name="clinic"),
@@ -43,6 +46,7 @@ urlpatterns = [
     # ── Super Admin ───────────────────────────────────────────────────────
     path("superadmin/clinics/",            SuperAdminClinicListView.as_view(),   name="sa-clinic-list"),
     path("superadmin/clinics/<int:pk>/",   SuperAdminClinicDetailView.as_view(), name="sa-clinic-detail"),
-    path("superadmin/clinics/<int:pk>/users/", SuperAdminClinicUsersView.as_view(), name="sa-clinic-users"),
-    path("superadmin/impersonate/",        SuperAdminImpersonateView.as_view(),  name="sa-impersonate"),
+    path("superadmin/clinics/<int:pk>/users/",        SuperAdminClinicUsersView.as_view(),    name="sa-clinic-users"),
+    path("superadmin/clinics/<int:pk>/subscription/", SuperAdminSubscriptionView.as_view(),  name="sa-subscription"),
+    path("superadmin/impersonate/",                   SuperAdminImpersonateView.as_view(),    name="sa-impersonate"),
 ]
